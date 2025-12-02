@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Icon } from './Icons';
 import { ToolMode, NodeShape, EdgeOptions } from '../types';
@@ -115,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <>
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed left-4 top-32 z-[60] bg-white p-2.5 rounded-lg shadow-clay-md border border-gray-200 hover:border-blue-400 hover:text-blue-600 transition-all group
+        className={`fixed left-4 top-20 z-[60] bg-white p-2.5 rounded-lg shadow-clay-md border border-gray-200 hover:border-blue-400 hover:text-blue-600 transition-all group
           ${isOpen ? 'translate-x-[260px] md:translate-x-[250px] opacity-0 pointer-events-none' : 'translate-x-0 opacity-100'}
         `}
         title="Expand Tools"

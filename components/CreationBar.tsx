@@ -1,8 +1,4 @@
 
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from './Icons';
 import { EdgeOptions, NodeShape } from '../types';
@@ -119,7 +115,7 @@ export const CreationBar: React.FC<CreationBarProps> = ({
 
         {/* --- NODES SECTION --- */}
         <div className="flex items-center gap-2 px-1">
-            <div className="relative" ref={menuRef}>
+            <div className="relative -translate-y-2" ref={menuRef}>
                 <button 
                     onClick={() => setIsShapeMenuOpen(!isShapeMenuOpen)}
                     className="flex items-center justify-center w-9 h-9 bg-gray-50 hover:bg-gray-100 rounded-xl text-gray-600 border border-gray-200 hover:border-gray-300 transition-all shadow-sm"

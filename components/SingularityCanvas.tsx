@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Viewport, SingularityNode, NodeType, HistoryStep, ToolMode, NodeShape, CanvasSettings, DrawingPath, EdgeOptions, AIGenerationOptions, AIAction, SnapLine, SmartStylingRules, Position, AIMindMapNode } from '../types';
 import { ZOOM_MIN, ZOOM_MAX, generateId, INITIAL_NODES, calculateLayout, recalculateLayout, layoutOrganic, layoutLocalFlower, TEMPLATES, APP_THEMES, LayoutType, pushNodesAside } from '../constants';
@@ -241,7 +242,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
   const currentTheme = APP_THEMES[canvasSettings.theme] || APP_THEMES['default'];
 
-  // ... (Voice Effect and handlers remain here, unchanged)
   useEffect(() => {
     if (isVoiceActive) {
       if (!('webkitSpeechRecognition' in window)) {
@@ -320,7 +320,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       return getVisibleNodeIds(nodes, collapsedNodeIds);
   }, [nodes, collapsedNodeIds]);
 
-  // ... (Focus Mode Effect, Dimming logic, Toolbar effects remain unchanged)
   useEffect(() => {
     if (!focusNodeId) {
         setFocusedDescendantIds(new Set());
@@ -366,7 +365,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       localStorage.setItem(`singularity-custom-toolbar-${mapId}`, JSON.stringify(customToolDefs));
   }, [customToolDefs, mapId]);
 
-  // ... (resolveTool, handlers for tools/storage)
   const resolveTool = (def: { id: string, label: string, iconName: string }): CustomTool => {
       const icon = (Icon as any)[def.iconName] || Icon.Help;
       let action = (payload?: any) => {};
@@ -495,12 +493,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   }, [nodes, drawings, edgeData, viewport, projectName, canvasSettings, defaultEdgeOptions, defaultNodeShape, defaultNodeColor, smartRules, mapId, collapsedNodeIds]);
 
   // TOUCH GESTURE LOGIC START
-  
-  // Replaced with direct DOM hit testing in handlers
-  // const getNodeAtScreenPos = (x: number, y: number): SingularityNode | null => { ... };
-
   const handleTouchStart = (e: React.TouchEvent) => {
-      // If user touches UI elements (buttons), allow default
       const target = e.target as HTMLElement;
       if (target.closest('button') || target.closest('input') || target.closest('.no-pan')) return;
 
@@ -510,44 +503,30 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
           touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
           
-          // Check for Double Tap Start (Empty Space) for Area Selection
-          // Logic: If touchstart happens < 300ms after last touchend
           const isDoubleTapStart = (now - lastTouchEndTimeRef.current) < 300;
           
-          // REPLACED getNodeAtScreenPos with elementFromPoint
           const hitEl = document.elementFromPoint(touch.clientX, touch.clientY);
           const nodeEl = hitEl?.closest('[data-node-id]');
           const hitNodeId = nodeEl?.getAttribute('data-node-id');
           const hitNode = hitNodeId ? nodes.find(n => n.id === hitNodeId) : null;
 
           if (isDoubleTapStart && !hitNode) {
-              // DETECTED: Double Tap (Hold) on Empty Space -> Start Area Selection Flag
               isPotentialAreaSelectionRef.current = true;
               if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
           } else if (hitNode) {
-              // Hit Node
-              if (isMultiSelectMode) {
-                  // In multi-select, we don't drag nodes, we just prepare to toggle selection on end
-                  // But if we want to allow dragging selected group? Let's disable drag in multi-select for simplicity/precision
-                  // Actually, let's allow drag if it's already selected.
-                  // For now: Just disable node drag in multi-select mode to prevent accidents.
-              } else {
-                  // Drag Node Mode
+              if (!isMultiSelectMode) {
                   let newSelection = new Set<string>();
                   if (selectedNodeIds.has(hitNode.id)) {
-                      newSelection = new Set(selectedNodeIds); // Keep existing group
+                      newSelection = new Set(selectedNodeIds);
                   } else {
-                      newSelection = new Set([hitNode.id]); // Select new
+                      newSelection = new Set([hitNode.id]);
                       setSelectedNodeIds(newSelection);
                   }
                   setDragNodeIds(newSelection);
                   hasDraggedRef.current = false;
               }
-              // Clear long press (no context menu on node via hold, use ShapeDock instead)
               if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
           } else {
-              // Canvas Hit (Single Tap Start)
-              // Start Long Press Timer for Context Menu
               longPressTimerRef.current = setTimeout(() => {
                   setActiveContextNodeId(null);
                   setContextMenuAnchor({ left: touch.clientX, top: touch.clientY, right: touch.clientX, bottom: touch.clientY, width: 0, height: 0 });
@@ -556,7 +535,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           }
           
       } else if (e.touches.length === 2) {
-          // Pinch Start
           if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
           isPinchingRef.current = true;
           isPotentialAreaSelectionRef.current = false;
@@ -581,21 +559,15 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           const dx = touch.clientX - last.x;
           const dy = touch.clientY - last.y;
 
-          // If moved > 10px, cancel Long Press
           if (Math.abs(touch.clientX - (touchStartPosRef.current?.x || 0)) > 10 || Math.abs(touch.clientY - (touchStartPosRef.current?.y || 0)) > 10) {
               if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
           }
 
-          // AREA SELECTION DRAG
           if (isPotentialAreaSelectionRef.current) {
-              // We are moving after a double-tap-hold
               if (!selectionBox) {
-                  // Start the box
                   setSelectionBox({ start: {x: touchStartPosRef.current!.x, y: touchStartPosRef.current!.y}, current: {x: touch.clientX, y: touch.clientY} });
               } else {
-                  // Update the box
                   setSelectionBox(prev => prev ? { ...prev, current: {x: touch.clientX, y: touch.clientY} } : null);
-                  // Update selection logic inside box
                   const x1 = Math.min(selectionBox.start.x, touch.clientX);
                   const y1 = Math.min(selectionBox.start.y, touch.clientY);
                   const x2 = Math.max(selectionBox.start.x, touch.clientX);
@@ -613,12 +585,10 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                   });
                   setSelectedNodeIds(newSel);
               }
-              // Prevent default pan
               return; 
           }
 
           if (dragNodeIds.size > 0 && !isMultiSelectMode) {
-              // NODE DRAG
               hasDraggedRef.current = true;
               e.preventDefault(); 
               const deltaX = dx / viewport.zoom;
@@ -631,7 +601,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                   return n;
               }));
               
-              // Edge updates (simplified)
               setEdgeData(prev => {
                   let changed = false; const next = { ...prev };
                   dragNodeIds.forEach(sourceId => {
@@ -654,7 +623,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
 
           } else {
-              // PAN CANVAS (Default)
               if (Math.abs(touch.clientX - (touchStartPosRef.current?.x || 0)) > 10 || Math.abs(touch.clientY - (touchStartPosRef.current?.y || 0)) > 10) {
                   setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
                   lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
@@ -662,7 +630,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           }
 
       } else if (e.touches.length === 2) {
-          // PINCH ZOOM
           if (e.cancelable) e.preventDefault(); 
           if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
 
@@ -705,38 +672,28 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           hasDraggedRef.current = false;
           return;
       }
-      // If we were supposed to drag nodes but didn't move, we clear drag ids but it counts as a tap below
       setDragNodeIds(new Set());
 
-      // TAP DETECTION
       if (e.touches.length === 0 && !isPinchingRef.current && lastTouchPosRef.current && touchStartPosRef.current) {
           const dx = Math.abs(lastTouchPosRef.current.x - touchStartPosRef.current.x);
           const dy = Math.abs(lastTouchPosRef.current.y - touchStartPosRef.current.y);
           
           if (dx < 10 && dy < 10) {
-              // REPLACED getNodeAtScreenPos with elementFromPoint
               const hitEl = document.elementFromPoint(lastTouchPosRef.current.x, lastTouchPosRef.current.y);
               const nodeEl = hitEl?.closest('[data-node-id]');
               const hitNodeId = nodeEl?.getAttribute('data-node-id');
               const hitNode = hitNodeId ? nodes.find(n => n.id === hitNodeId) : null;
               
               if (hitNode) {
-                  // Single Tap on Node
                   if (isMultiSelectMode) {
-                      // Multi-Select Toggle
                       const newSet = new Set(selectedNodeIds);
                       if (newSet.has(hitNode.id)) newSet.delete(hitNode.id);
                       else newSet.add(hitNode.id);
                       setSelectedNodeIds(newSet);
                   } else {
-                      // Normal Select
                       handleNodeClick({ stopPropagation: () => {}, preventDefault: () => {}, shiftKey: false, ctrlKey: false, altKey: false, clientX: lastTouchPosRef.current.x, clientY: lastTouchPosRef.current.y } as any, hitNode.id);
                   }
-                  
-                  // Double Tap Edit Check
-                  // (Currently reusing simple logic, could be refined)
               } else {
-                  // Tap on Canvas -> Clear Selection (unless multi mode)
                   if (!isMultiSelectMode) {
                       setSelectedNodeIds(new Set());
                       setSelectedEdgeIds(new Set());
@@ -752,7 +709,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   };
   // --- TOUCH GESTURE LOGIC END ---
 
-  // ... (Rest of component including render, handlers for export, layout, etc. identical to before)
   const handleToggleNodeExpansion = (nodeId: string) => {
       setCollapsedNodeIds(prev => {
           const next = new Set(prev);
@@ -764,7 +720,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleCollapseAll = () => { const allParents = new Set<string>(); nodes.forEach(n => { if (n.childrenIds.length > 0) allParents.add(n.id); }); setCollapsedNodeIds(allParents); };
   const centerOnNode = (nodeId: string, targetZoom?: number) => { const node = nodes.find(n => n.id === nodeId); if (node) { const z = targetZoom || viewport.zoom; const newX = (window.innerWidth / 2) - (node.position.x * z); const newY = (window.innerHeight / 2) - (node.position.y * z); setViewport({ x: newX, y: newY, zoom: z }); } };
 
-  // ... (Helpers: createMap, summarize, dream, paste, commit, update, undo, redo, nextResult, prevResult, video, export, magicStyle, layoutAction, handleAction, handleSelectionAction, getNodeById, getSelectedNode, handleAddNode, etc.)
   const handleCreateNewMap = async (goal: string) => { setIsNewMapModalOpen(false); setIsGenerating(true); if (!goal.trim()) { updateState(INITIAL_NODES, [], {}); setViewport({ x: window.innerWidth / 2, y: window.innerHeight / 2, zoom: 1 }); setIsGenerating(false); return; } const aiData = await generateMindMapData(goal); if (aiData) { const center = { x: 0, y: 0 }; const layoutNodes = calculateLayout(aiData, center.x, center.y); const organicNodes = layoutOrganic(layoutNodes); updateState(organicNodes, [], {}); setViewport({ x: window.innerWidth / 2, y: window.innerHeight / 2, zoom: 1 }); setProjectName(goal); } else { alert("AI could not generate the map. Starting blank."); updateState(INITIAL_NODES, [], {}); } setIsGenerating(false); };
   const handleSummarizeBranch = async (nodeId: string) => { const rootNode = getNodeById(nodeId); if (!rootNode) return; setIsGenerating(true); let structureText = ""; const traverse = (id: string, depth: number) => { const node = getNodeById(id); if (node) { structureText += `${'  '.repeat(depth)}- ${node.label}\n`; node.childrenIds.forEach(cid => traverse(cid, depth + 1)); } }; traverse(nodeId, 0); const summary = await summarizeBranch(rootNode.label, structureText); const noteId = generateId(); const newNote: SingularityNode = { id: noteId, type: NodeType.NOTE, label: `📝 Summary of ${rootNode.label}:\n\n${summary}`, position: { x: rootNode.position.x + 350, y: rootNode.position.y }, childrenIds: [], shape: 'rectangle', color: '#fff740' }; const newNodes = nodes.map(n => n.id === nodeId ? { ...n, childrenIds: [...n.childrenIds, noteId] } : n); const edgeKey = `${nodeId}-${noteId}`; const newEdgeData = { ...edgeData, [edgeKey]: { stroke: 'dashed' as const, color: '#fbbf24' } }; updateState([...newNodes, newNote], drawings, newEdgeData); setIsGenerating(false); };
   const handleDreamNode = async (style: string) => { const targetId = aiTargetNodeId; const node = nodes.find(n => n.id === targetId); if (!node) return; const parent = nodes.find(n => n.id === node.parentId); const context = parent ? parent.label : 'Main Concept'; updateState(nodes.map(n => n.id === targetId ? { ...n, data: { ...n.data, isDreaming: true } } : n)); const imageUrl = await generateDreamImage(node.label, context, style); if (imageUrl) { updateState(nodes.map(n => n.id === targetId ? { ...n, type: NodeType.MEDIA, data: { ...n.data, imageUrl, isDreaming: false } } : n)); } else { updateState(nodes.map(n => n.id === targetId ? { ...n, data: { ...n.data, isDreaming: false } } : n)); alert("Could not dream up an image. Try again."); } };
@@ -781,7 +736,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleMagicStyle = async (nodeId: string) => { const node = getNodeById(nodeId); if (!node) return; setIsGenerating(true); const result = await analyzeNodeContent(node.label); if (result) { let newNodeType = node.type; if (result.type === 'TASK') newNodeType = NodeType.TASK; if (result.type === 'CODE') newNodeType = NodeType.CODE; updateState(nodes.map(n => n.id === nodeId ? { ...n, type: newNodeType, color: result.color, shape: result.shape as NodeShape } : n)); } setIsGenerating(false); };
   const handleLayoutAction = (type: LayoutType) => { let processedNodes = [...nodes]; if (type === 'FLOWCHART') { processedNodes = processedNodes.map(n => ({ ...n, originalShape: n.originalShape || n.shape, shape: n.label.includes('?') || n.type === NodeType.MAIN ? 'diamond' : 'rectangle' })); } else { processedNodes = processedNodes.map(n => ({ ...n, shape: n.originalShape || n.shape, originalShape: undefined })); } let layoutTargetNodes = processedNodes; let isPartialLayout = selectedNodeIds.size > 0; if (isPartialLayout) { const selected = processedNodes.filter(n => selectedNodeIds.has(n.id)); if (selected.length > 0) layoutTargetNodes = selected; else isPartialLayout = false; } const laidOutNodes = recalculateLayout(layoutTargetNodes, type); if (isPartialLayout) { const centroidX = layoutTargetNodes.reduce((sum, n) => sum + n.position.x, 0) / layoutTargetNodes.length; const centroidY = layoutTargetNodes.reduce((sum, n) => sum + n.position.y, 0) / layoutTargetNodes.length; const newCentroidX = laidOutNodes.reduce((sum, n) => sum + n.position.x, 0) / laidOutNodes.length; const newCentroidY = laidOutNodes.reduce((sum, n) => sum + n.position.y, 0) / laidOutNodes.length; const offsetX = centroidX - newCentroidX; const offsetY = centroidY - newCentroidY; const mergedNodes = processedNodes.map(n => { const updated = laidOutNodes.find(sub => sub.id === n.id); if (updated) { return { ...updated, position: { x: updated.position.x + offsetX, y: updated.position.y + offsetY } }; } return n; }); updateState(mergedNodes); } else { updateState(laidOutNodes); } };
 
-  // ... (handleAction implementation remains the same)
   const handleAction = (actionId: string, payload?: any) => { switch(actionId) { case 'undo': undo(); break; case 'redo': redo(); break; case 'center': setViewport(prev => ({ ...prev, x: window.innerWidth/2 - (nodes[0]?.position.x * prev.zoom || 0), y: window.innerHeight/2 - (nodes[0]?.position.y * prev.zoom || 0) })); break; case 'fit': handleLayoutAction('MINDMAP_LR'); setViewport(prev => ({ ...prev, zoom: 0.8 })); break; case 'zoom-in': setViewport(prev => ({ ...prev, zoom: Math.min(5, prev.zoom + 0.1) })); break; case 'zoom-out': setViewport(prev => ({ ...prev, zoom: Math.max(0.1, prev.zoom - 0.1) })); break; case 'new-map': setIsNewMapModalOpen(true); break; case 'export-image': handleExport('PNG'); break; case 'export-jpeg': handleExport('JPEG'); break; case 'export-text': handleExport('TXT'); break; case 'export-json': handleExport('JSON'); break; case 'shortcuts': setIsShortcutsOpen(true); break; case 'select-all': setSelectedNodeIds(new Set(nodes.map(n => n.id))); break; case 'template-swot': handleLoadTemplate('SWOT'); break; case 'template-roadmap': handleLoadTemplate('ROADMAP'); break; case 'template-plan': handleLoadTemplate('PROJECT_PLAN'); break; case 'layout': handleLayoutAction(payload as LayoutType); break; case 'add-node-shape': { const p = payload as any; const shape = typeof p === 'string' ? p : p?.shape; const pos = typeof p === 'object' ? p?.position : undefined; handleAddNode(undefined, false, NodeType.SUB, shape as NodeShape, undefined, undefined, undefined, pos); break; } case 'new-sticky-color': handleAddNote(true, payload as any); break; case 'code-node': handleAddNode(undefined, false, NodeType.CODE, 'rectangle', 'Code Snippet', undefined, payload); break; case 'table-node': handleAddNode(undefined, false, NodeType.TABLE, 'rectangle', 'Data Table', undefined, payload); break; case 'open-media-modal': setIsMediaModalOpen(true); break; case 'search': setIsFindOpen(true); break; case 'ai-expand': { const s = getSelectedNode(); if(s) { setAiTargetNodeId(s.id); setIsAiOptionsOpen(true); } else alert("Select a node to expand."); break; } case 'ai-chat': setIsChatOpen(true); break; case 'present': if (!document.fullscreenElement) { containerRef.current?.requestFullscreen(); setIsPresentationFullscreen(true); } else { document.exitFullscreen(); setIsPresentationFullscreen(false); } break; case 'copy-style': { const node = getSelectedNode(); if (node) setStyleClipboard({ color: node.color, shape: node.shape }); break; } case 'paste-style': { if (styleClipboard && selectedNodeIds.size > 0) { const newNodes = nodes.map(n => selectedNodeIds.has(n.id) ? { ...n, color: styleClipboard.color || n.color, shape: styleClipboard.shape || n.shape } : n); updateState(newNodes); } break; } case 'replace-global-style': { const { find, replace } = payload || {}; if (!replace) return; const matchedNodeIds = new Set<string>(); const newNodes = nodes.map(n => { const matchesShape = !find.shape || find.shape === 'any' || n.shape === find.shape; const matchesColor = isColorSimilar(n.color, find.color); if (matchesShape && matchesColor) { matchedNodeIds.add(n.id); return { ...n, shape: replace.shape && replace.shape !== 'any' ? replace.shape : n.shape, color: replace.color && replace.color !== 'any' ? replace.color : n.color }; } return n; }); let newEdgeData = edgeData; const replacingLinkColor = replace.linkColor && replace.linkColor !== 'any'; const findingLinkColor = find.linkColor && find.linkColor !== 'any'; if (replacingLinkColor || findingLinkColor) { newEdgeData = { ...edgeData }; Object.keys(newEdgeData).forEach(key => { const edge = newEdgeData[key]; const [source, target] = key.split('-'); const matchesFindColor = !findingLinkColor || isColorSimilar(edge.color, find.linkColor); let shouldReplace = false; if (findingLinkColor) { if (matchesFindColor) shouldReplace = true; } else { if (matchedNodeIds.has(source)) shouldReplace = true; } if (shouldReplace && replacingLinkColor) { newEdgeData[key] = { ...edge, color: replace.linkColor }; } }); } if (JSON.stringify(newNodes) !== JSON.stringify(nodes) || JSON.stringify(newEdgeData) !== JSON.stringify(edgeData)) { updateState(newNodes, drawings, newEdgeData); } break; } case 'edge-bulk-update': { const { color, stroke, routingType, endMarker } = payload || {}; if (selectedEdgeIds.size === 0 && !linkSelectionMode) return; if (selectedEdgeIds.size === 0) return; let newEdgeData = { ...edgeData }; selectedEdgeIds.forEach(edgeKey => { if (!newEdgeData[edgeKey]) return; const current = newEdgeData[edgeKey]; newEdgeData[edgeKey] = { ...current, color: color !== undefined ? color : current.color, stroke: stroke !== undefined ? stroke : current.stroke, routingType: routingType !== undefined ? routingType : current.routingType, endMarker: endMarker !== undefined ? endMarker : current.endMarker, controlPoints: routingType !== undefined && routingType !== current.routingType ? [] : current.controlPoints }; }); updateState(nodes, drawings, newEdgeData); break; } case 'edge-align-horizontal': { if (selectedEdgeIds.size === 0) return; let totalY = 0; let count = 0; selectedEdgeIds.forEach(key => { if(edgeData[key]?.controlPoints?.[0]) { totalY += edgeData[key].controlPoints![0].y; count++; } }); if (count === 0) return; const avgY = totalY / count; let newEdgeData = { ...edgeData }; selectedEdgeIds.forEach(key => { if(newEdgeData[key]?.controlPoints?.[0]) { const newPoints = [...newEdgeData[key].controlPoints!]; newPoints[0] = { ...newPoints[0], y: avgY }; newEdgeData[key] = { ...newEdgeData[key], controlPoints: newPoints }; } }); updateState(nodes, drawings, newEdgeData); break; } case 'edge-align-vertical': { if (selectedEdgeIds.size === 0) return; let totalX = 0; let count = 0; selectedEdgeIds.forEach(key => { if(edgeData[key]?.controlPoints?.[0]) { totalX += edgeData[key].controlPoints![0].x; count++; } }); if (count === 0) return; const avgX = totalX / count; let newEdgeData = { ...edgeData }; selectedEdgeIds.forEach(key => { if(newEdgeData[key]?.controlPoints?.[0]) { const newPoints = [...newEdgeData[key].controlPoints!]; newPoints[0] = { ...newPoints[0], x: avgX }; newEdgeData[key] = { ...newEdgeData[key], controlPoints: newPoints }; } }); updateState(nodes, drawings, newEdgeData); break; } case 'edge-delete-selected': { if (selectedEdgeIds.size === 0) return; let newNodes = [...nodes]; selectedEdgeIds.forEach(key => { const parsed = parseEdgeId(key); if (parsed) { const { sourceId, targetId } = parsed; newNodes = newNodes.map(n => n.id === sourceId ? { ...n, childrenIds: n.childrenIds.filter(childId => childId !== targetId) } : n); } }); let newEdgeData = { ...edgeData }; selectedEdgeIds.forEach(key => delete newEdgeData[key]); updateState(newNodes, drawings, newEdgeData); setSelectedEdgeIds(new Set()); break; } case 'focus': { if (selectedNodeIds.size > 0) { const id = Array.from(selectedNodeIds)[0] as string; setFocusNodeId(id); centerOnNode(id); } break; } case 'dream-node': { if (selectedNodeIds.size > 0) { setAiTargetNodeId(Array.from(selectedNodeIds)[0] as string); setIsDreamModalOpen(true); } break; } case 'update-node-data': { const { id, data } = payload; if (id && data) handleDataChange(id, data); break; } } };
   const handleSelectionAction = (action: string, payload?: any) => { if (selectedNodeIds.size === 0) return; const selectedNodes = nodes.filter(n => selectedNodeIds.has(n.id)); let newNodes = [...nodes]; switch(action) { case 'color': newNodes = newNodes.map(n => selectedNodeIds.has(n.id) ? { ...n, color: payload as string } : n); break; case 'shape': newNodes = newNodes.map(n => selectedNodeIds.has(n.id) ? { ...n, shape: payload as NodeShape } : n); break; case 'delete': newNodes = newNodes.filter(n => !selectedNodeIds.has(n.id)); newNodes = newNodes.map(n => ({ ...n, childrenIds: n.childrenIds.filter(cid => !selectedNodeIds.has(cid)) })); setSelectedNodeIds(new Set()); break; case 'duplicate': const clones: SingularityNode[] = []; const newSelection = new Set<string>(); selectedNodes.forEach(node => { const id = generateId(); clones.push({ ...node, id, position: { x: node.position.x + 20, y: node.position.y + 20 }, childrenIds: [], label: node.label + ' (Copy)' }); newSelection.add(id); }); newNodes = [...newNodes, ...clones]; setSelectedNodeIds(newSelection); break; case 'lock': newNodes = newNodes.map(n => selectedNodeIds.has(n.id) ? { ...n, locked: !n.locked } : n); break; case 'align-left': { const minX = Math.min(...selectedNodes.map(n => n.position.x)); newNodes = newNodes.map(n => selectedNodeIds.has(n.id) ? { ...n, position: { ...n.position, x: minX } } : n); break; } case 'align-center': { const avgX = selectedNodes.reduce((sum, n) => sum + n.position.x, 0) / selectedNodes.length; newNodes = newNodes.map(n => selectedNodeIds.has(n.id) ? { ...n, position: { ...n.position, x: avgX } } : n); break; } } updateState(newNodes); };
   const getNodeById = (id: string) => nodes.find(n => n.id === id);
@@ -795,7 +749,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleAutoLayout = () => { handleLayoutAction('MINDMAP_LR'); };
 
   useEffect(() => {
-    // ... (Keyboard Handlers)
     const handleKeyDown = (e: KeyboardEvent) => { if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return; if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedEdgeIds.size > 0 && selectedNodeIds.size === 0) handleAction('edge-delete-selected'); else handleSelectionAction('delete'); } if (e.key === 'Tab') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, false); } if (e.key === 'Enter') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, true); } if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !isPresentationFullscreen) { e.preventDefault(); setMode(prev => prev === ToolMode.SELECT ? ToolMode.HAND : prev === ToolMode.HAND ? ToolMode.CONNECT : ToolMode.SELECT); } if (e.key.toLowerCase() === 'v') setMode(ToolMode.SELECT); if (e.key.toLowerCase() === 'h') setMode(ToolMode.HAND); if (e.key.toLowerCase() === 'd') setMode(ToolMode.DRAW); if (e.key.toLowerCase() === 'l') handleAutoLayout(); if (e.key.toLowerCase() === 'c') handleAction('center'); if (e.key === 'Escape') { setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); setConnectSourceId(null); setMode(ToolMode.SELECT); setIsFindOpen(false); setIsAiOptionsOpen(false); setIsMediaModalOpen(false); setIsShortcutsOpen(false); setIsCmdPaletteOpen(false); setIsDreamModalOpen(false); setIsExportModalOpen(false); setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); setFocusNodeId(null); if(isPresentationFullscreen) { document.exitFullscreen(); setIsPresentationFullscreen(false); } setIsToolSelectionMode(false); } if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y') { e.preventDefault(); redo(); } if (e.key === 'a') { e.preventDefault(); handleAction('select-all'); } if (e.key === 'f') { e.preventDefault(); handleAction('search'); } if (e.key === 'k') { e.preventDefault(); setIsCmdPaletteOpen(prev => !prev); } } if (e.ctrlKey && e.altKey) { if (e.key.toLowerCase() === 'c') { e.preventDefault(); handleAction('copy-style'); } if (e.key.toLowerCase() === 'v') { e.preventDefault(); handleAction('paste-style'); } } if (e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); handleAction('present'); } };
     window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodeIds, selectedEdgeIds, mode, nodes, edgeData, historyIndex, isPresentationFullscreen, styleClipboard, smartRules, defaultEdgeOptions, defaultNodeShape, defaultNodeColor, appMode]);
@@ -875,7 +828,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleExpandNode = async (options: AIGenerationOptions) => { if (!aiTargetNodeId) return; const targetNode = nodes.find(n => n.id === aiTargetNodeId); if(!targetNode) return; setIsGenerating(true); const expandedNodes = await expandNodeWithAI(targetNode.label, options.context || '', nodes, options); if (expandedNodes.length > 0) { const newChildrenIds: string[] = []; const newNodesList: SingularityNode[] = []; const newEdges: Record<string, EdgeOptions> = {}; const buildHierarchy = (aiNodeList: AIMindMapNode[], parentId: string, depth: number) => { aiNodeList.forEach((aiNode) => { const id = generateId(); let nodeColor = targetNode.color; let nodeShape = targetNode.shape; let edgeStyle = defaultEdgeOptions; if (options.style) { nodeColor = options.style.inheritNodeColor ? targetNode.color : options.style.customNodeColor; nodeShape = options.style.inheritNodeShape ? targetNode.shape : options.style.customNodeShape; if (options.style.inheritLinkStyle) { const parentLinkKey = Object.keys(edgeData).find(k => k.endsWith(`-${parentId}`)); if (parentLinkKey) edgeStyle = { ...edgeData[parentLinkKey] }; } else { edgeStyle = { ...defaultEdgeOptions, routingType: options.style.customLinkStyle }; } if (!options.style.inheritLinkColor && options.style.customLinkColor) { edgeStyle.color = options.style.customLinkColor; } else if (options.style.inheritLinkColor) { const parentLinkKey = Object.keys(edgeData).find(k => k.endsWith(`-${parentId}`)); if (parentLinkKey) edgeStyle.color = edgeData[parentLinkKey].color; } } const newNode: SingularityNode = { id, type: depth === 0 ? (targetNode.type === NodeType.ROOT ? NodeType.MAIN : NodeType.SUB) : NodeType.SUB, label: aiNode.label, position: { x: targetNode.position.x, y: targetNode.position.y }, parentId: parentId, childrenIds: [], isAiGenerated: true, shape: nodeShape, color: nodeColor }; newNodesList.push(newNode); newEdges[`${parentId}-${id}`] = { ...edgeStyle }; if (parentId === targetNode.id) { newChildrenIds.push(id); } else { const parentNodeInList = newNodesList.find(n => n.id === parentId); if (parentNodeInList) parentNodeInList.childrenIds.push(id); } if (aiNode.children && aiNode.children.length > 0) { buildHierarchy(aiNode.children, id, depth + 1); } }); }; buildHierarchy(expandedNodes, targetNode.id, 0); const updatedParent = { ...targetNode, childrenIds: [...targetNode.childrenIds, ...newChildrenIds] }; let mergedNodes = nodes.map(n => n.id === targetNode.id ? updatedParent : n).concat(newNodesList); if (appMode === 'MINDMAP') { const layoutRecursive = (pid: string, grandPid?: string) => { const parent = mergedNodes.find(n => n.id === pid); if (!parent) return; const children = parent.childrenIds.map(cid => mergedNodes.find(n => n.id === cid)).filter(Boolean) as SingularityNode[]; if (children.length === 0) return; const grandParent = grandPid ? mergedNodes.find(n => n.id === grandPid) : undefined; const laidOut = layoutLocalFlower(parent, children, grandParent); mergedNodes = mergedNodes.map(n => { const found = laidOut.find(l => l.id === n.id); return found || n; }); children.forEach(c => layoutRecursive(c.id, pid)); }; layoutRecursive(targetNode.id, targetNode.parentId); } else { mergedNodes = layoutOrganic(mergedNodes); } newNodesList.forEach(nn => { const placedNode = mergedNodes.find(m => m.id === nn.id); if (placedNode) { mergedNodes = pushNodesAside(placedNode, mergedNodes); } }); updateState(mergedNodes, drawings, { ...edgeData, ...newEdges }); if(collapsedNodeIds.has(targetNode.id)) { setCollapsedNodeIds(prev => { const next = new Set(prev); next.delete(targetNode.id); return next; }); } } setIsGenerating(false); };
   const handleAiActions = (actions: AIAction[]) => { let currentNodes = [...nodes]; let currentEdges = { ...edgeData }; actions.forEach(action => { if (action.type === 'CREATE_NODE') { const { label, parentId } = action.payload; const id = generateId(); const newNode: SingularityNode = { id, type: NodeType.MAIN, label: label || 'AI Node', position: { x: viewport.x, y: viewport.y }, childrenIds: [] }; if (parentId) { const parent = currentNodes.find(n => n.id === parentId); if (parent) { newNode.parentId = parentId; newNode.position = { x: parent.position.x + 200, y: parent.position.y + 50 }; parent.childrenIds.push(id); currentEdges[`${parentId}-${id}`] = { ...defaultEdgeOptions }; } } currentNodes.push(newNode); } }); if (appMode === 'MINDMAP') currentNodes = layoutOrganic(currentNodes); updateState(currentNodes, drawings, currentEdges); };
 
-  // ... (activeNode, showShapeDock, etc)
   const activeNode = activeContextNodeId ? nodes.find(n => n.id === activeContextNodeId) : null;
   const showShapeDock = !!activeContextNodeId && !!activeNode;
   const shapeDockTarget = activeNode;
@@ -916,356 +868,224 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       
       <OutlinePanel isOpen={isOutlineOpen} setIsOpen={setIsOutlineOpen} nodes={nodes} onSelectNode={(id) => { const node = getNodeById(id); if (node) { setFocusNodeId(id); centerOnNode(id); } }} isSidebarOpen={isSidebarOpen} />
 
-      {/* MULTI SELECT TOGGLE */}
+      {/* MULTI SELECT TOGGLE (MOBILE) - MOVED TO TOP-44 */}
       <button 
          onClick={() => setIsMultiSelectMode(!isMultiSelectMode)}
-         className={`fixed left-4 top-20 z-[60] bg-white p-2.5 rounded-lg shadow-clay-md border hover:border-blue-400 transition-all
-            ${isMultiSelectMode ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-500'}
-            ${isSidebarOpen ? 'translate-x-[260px]' : 'translate-x-0'}
+         className={`fixed top-44 z-[60] p-2.5 rounded-lg shadow-clay-md border transition-all duration-300 ease-in-out
+            ${isMultiSelectMode ? 'bg-blue-50 border-blue-500 text-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:text-blue-600 hover:border-blue-400'}
          `}
+         style={{ left: isSidebarOpen ? '280px' : '16px' }}
          title="Toggle Multi-Select"
       >
-          <Icon.BoxSelect size={20} strokeWidth={isMultiSelectMode ? 2.5 : 2} />
+          {isMultiSelectMode ? <Icon.Task size={20} /> : <Icon.Select size={20} />}
       </button>
 
-      {/* FLOATING TOOLBAR (Contextual) */}
-      {selectedNodeIds.size > 1 && (
-         <FloatingToolbar selectedCount={selectedNodeIds.size} onAction={handleSelectionAction} />
-      )}
-      {selectedEdgeIds.size > 0 && selectedNodeIds.size <= 1 && (
-         <FloatingToolbar selectedCount={selectedEdgeIds.size} onAction={handleAction} isEdgeMode />
-      )}
+      {/* TOOLBAR STACK - BOTTOM LEFT */}
+      <div className="fixed bottom-6 left-4 z-50 flex flex-col items-start gap-3 pointer-events-none">
+           {/* 3rd Layer: Custom Tools */}
+           <div className="pointer-events-auto">
+               <CustomToolbar 
+                  tools={customTools} 
+                  onAddClick={handleAddToolClick} 
+                  onRemoveTool={handleRemoveTool} 
+                  onDropTool={handleDropTool}
+                  isSelectionMode={isToolSelectionMode}
+               />
+           </div>
 
-      {/* MODALS & PANELS */}
-      <CommandPalette isOpen={isCmdPaletteOpen} onClose={() => setIsCmdPaletteOpen(false)} commands={commands} />
-      <ShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
+           {/* 2nd Layer: Creation Bar */}
+           <CreationBar 
+              defaultEdgeOptions={defaultEdgeOptions}
+              setDefaultEdgeOptions={setDefaultEdgeOptions}
+              defaultNodeShape={defaultNodeShape}
+              setDefaultNodeShape={setDefaultNodeShape}
+              defaultNodeColor={defaultNodeColor}
+              setDefaultNodeColor={setDefaultNodeColor}
+              className="pointer-events-auto"
+           />
+
+           {/* 1st Layer: Status Bar (Undo/Redo/Zoom) */}
+           <StatusBar 
+              zoom={viewport.zoom} 
+              onZoomIn={() => handleAction('zoom-in')} 
+              onZoomOut={() => handleAction('zoom-out')} 
+              onZoomChange={(val) => setViewport(prev => ({ ...prev, zoom: val }))} 
+              onFitView={() => handleAction('fit')} 
+              onUndo={undo} 
+              onRedo={redo} 
+              canUndo={historyIndex > 0} 
+              canRedo={historyIndex < history.length - 1}
+              onExpandAll={handleExpandAll}
+              onCollapseAll={handleCollapseAll}
+              className="pointer-events-auto flex items-center gap-2 select-none origin-bottom-left scale-90 md:scale-100"
+           />
+      </div>
       
-      <RightPanel 
-        isOpen={isRightPanelOpen} 
-        setIsOpen={setIsRightPanelOpen}
-        canvasSettings={canvasSettings}
-        setCanvasSettings={setCanvasSettings}
-        isDarkMode={currentTheme.isDark}
-        toggleTheme={() => setCanvasSettings(s => ({...s, theme: s.theme === 'default' ? 'dark' : 'default'}))}
-        onShowShortcuts={() => setIsShortcutsOpen(true)}
-        onExport={handleExport}
-        smartRules={smartRules}
-        setSmartRules={setSmartRules}
-        onAction={handleAction}
-        selectedEdgeIds={selectedEdgeIds}
-        linkSelectionMode={linkSelectionMode}
-        setLinkSelectionMode={setLinkSelectionMode}
-        defaultEdgeOptions={defaultEdgeOptions}
-        setDefaultEdgeOptions={setDefaultEdgeOptions}
-        defaultNodeShape={defaultNodeShape}
-        setDefaultNodeShape={setDefaultNodeShape}
-        defaultNodeColor={defaultNodeColor}
-        setDefaultNodeColor={setDefaultNodeColor}
-        isSelectionMode={isToolSelectionMode}
-        onToolSelect={handleToolSelect}
-        selectedNode={getSelectedNode()}
-      />
+      <RightPanel isOpen={isRightPanelOpen} setIsOpen={setIsRightPanelOpen} canvasSettings={canvasSettings} setCanvasSettings={setCanvasSettings} isDarkMode={currentTheme.isDark} toggleTheme={() => setCanvasSettings(p => ({ ...p, theme: p.theme === 'default' ? 'dark' : 'default' }))} onShowShortcuts={() => setIsShortcutsOpen(true)} onExport={handleExport} smartRules={smartRules} setSmartRules={setSmartRules} onAction={handleAction} selectedEdgeIds={selectedEdgeIds} linkSelectionMode={linkSelectionMode} setLinkSelectionMode={setLinkSelectionMode} defaultEdgeOptions={defaultEdgeOptions} setDefaultEdgeOptions={setDefaultEdgeOptions} defaultNodeShape={defaultNodeShape} setDefaultNodeShape={setDefaultNodeShape} defaultNodeColor={defaultNodeColor} setDefaultNodeColor={setDefaultNodeColor} isSelectionMode={isToolSelectionMode} onToolSelect={handleToolSelect} selectedNode={getSelectedNode()} />
 
-      <Minimap 
-         nodes={nodes} 
-         viewport={viewport} 
-         windowSize={{ w: window.innerWidth, h: window.innerHeight }} 
-         setViewport={setViewport} 
-      />
-
-      {/* Focus Mode Indicator */}
-      {focusNodeId && (
-         <div className="fixed bottom-8 right-[200px] z-50 animate-fade-in">
-             <button onClick={() => handleAction('focus')} className="bg-white/90 hover:bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl shadow-clay-md border border-indigo-100 flex items-center gap-2 font-bold text-xs transition-all hover:scale-105">
-                 <Icon.Zap size={16} /> Focus Mode
-             </button>
-         </div>
-      )}
+      <Minimap nodes={nodes} viewport={viewport} windowSize={{ w: window.innerWidth, h: window.innerHeight }} setViewport={setViewport} />
       
-      <ShortcutMonitor />
-
-      {/* Search UI */}
-      {isFindOpen && (
-         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[60] bg-white p-2 rounded-lg shadow-xl border border-gray-200 flex items-center gap-2 w-96">
-             <Icon.Search className="text-gray-400 ml-2" size={18} />
-             <input 
-                autoFocus
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Find in map..."
-                className="flex-1 bg-transparent border-none outline-none text-sm font-medium text-gray-700 h-8"
-                onKeyDown={(e) => {
-                    if(e.key === 'Enter') {
-                        e.preventDefault();
-                        if (e.shiftKey) handlePrevResult();
-                        else handleNextResult();
-                    }
-                }}
-             />
-             <span className="text-xs text-gray-400 font-mono border-r border-gray-200 pr-2">
-                 {searchResults.length > 0 ? `${currentResultIndex + 1}/${searchResults.length}` : '0/0'}
-             </span>
-             <button onClick={handlePrevResult} className="p-1 hover:bg-gray-100 rounded text-gray-600"><Icon.Arrow size={16} className="rotate-180" /></button>
-             <button onClick={handleNextResult} className="p-1 hover:bg-gray-100 rounded text-gray-600"><Icon.Arrow size={16} /></button>
-             <button onClick={() => setIsFindOpen(false)} className="p-1 hover:bg-red-50 rounded text-red-500"><Icon.Close size={16} /></button>
-         </div>
-      )}
-
-      {/* Status Badges */}
-      {activeContextNodeId && (
-          <div className="fixed top-20 right-6 z-[60] bg-indigo-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-fade-in">
-             <Icon.Zap size={16} fill="currentColor" />
-             <span className="text-sm font-bold">Focus Mode Active</span>
-             <button onClick={() => setAiTargetNodeId(null)} className="ml-2 hover:text-indigo-200"><Icon.Close size={16} /></button>
-          </div>
-      )}
-
-      {linkSelectionMode && (
-          <div className="fixed top-32 right-6 z-[60] bg-green-600/90 backdrop-blur-md text-white px-3 py-1.5 rounded-full shadow-clay-md flex items-center gap-3 animate-fade-in border border-green-400/50">
-              <div className="flex items-center gap-2">
-                  <Icon.Connect size={14} className="animate-pulse text-green-100"/>
-                  <span className="text-xs font-bold uppercase tracking-wider">Paint Mode</span>
-              </div>
-              <div className="w-px h-3 bg-white/20 hidden sm:block"/>
-              <span className="text-[10px] font-medium text-green-50 hidden sm:inline">Drag to select</span>
-              <button onClick={() => setLinkSelectionMode(false)} className="ml-1 p-0.5 hover:bg-black/20 rounded-full transition-colors" title="Exit Mode">
-                  <Icon.Close size={12} />
+      {selectedNodeIds.size > 0 && (
+          <div className="fixed bottom-8 right-[200px] z-50 animate-fade-in">
+              <button 
+                onClick={() => handleAction('focus')}
+                className="bg-white/90 hover:bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl shadow-clay-md border border-indigo-100 flex items-center gap-2 font-bold text-xs transition-all hover:scale-105"
+              >
+                  <Icon.Zap size={16} /> Focus Mode
               </button>
           </div>
       )}
-      
-      {/* PRESENTATION OVERLAY */}
-      {isPresentationFullscreen && (
-          <>
-             {/* ... simple presentation controls ... */}
-             <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] bg-black/80 backdrop-blur-md text-white px-6 py-3 rounded-full flex items-center gap-4 shadow-2xl border border-white/10 animate-slide-up">
-                  <div className="flex items-center gap-2 mr-4">
-                      <Icon.Present size={20} className="text-green-400 animate-pulse" />
-                      <span className="font-bold text-sm">Interactive Narrative</span>
-                  </div>
-                  <div className="text-xs text-gray-400 border-l border-gray-600 pl-4">
-                      Click <Icon.ChevronRight size={12} className="inline"/> to expand, <Icon.ChevronLeft size={12} className="inline"/> to collapse.
-                  </div>
-                  <div className="w-px h-6 bg-white/20 mx-2" />
-                  <button 
-                      onClick={() => { document.exitFullscreen(); setIsPresentationFullscreen(false); }}
-                      className="p-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-full transition-colors"
-                      title="Exit Presentation"
-                  >
-                      <Icon.Stop size={20} />
-                  </button>
-             </div>
-          </>
+
+      <ShortcutMonitor />
+
+      {isFindOpen && (
+          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[60] bg-white p-2 rounded-lg shadow-xl border border-gray-200 flex items-center gap-2 w-96">
+             <Icon.Search className="text-gray-400 ml-2" size={18} />
+             <input autoFocus value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Find in map..." className="flex-1 bg-transparent border-none outline-none text-sm font-medium text-gray-700 h-8" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) handlePrevResult(); else handleNextResult(); } }} />
+             <span className="text-xs text-gray-400 font-mono border-r border-gray-200 pr-2">{searchResults.length > 0 ? `${currentResultIndex + 1}/${searchResults.length}` : '0/0'}</span>
+             <button onClick={handlePrevResult} className="p-1 hover:bg-gray-100 rounded text-gray-600"><Icon.Arrow size={16} className="rotate-180" /></button>
+             <button onClick={handleNextResult} className="p-1 hover:bg-gray-100 rounded text-gray-600"><Icon.Arrow size={16} /></button>
+             <button onClick={() => setIsFindOpen(false)} className="p-1 hover:bg-red-50 rounded text-red-500"><Icon.Close size={16} /></button>
+          </div>
       )}
 
-      {/* MAIN CANVAS AREA */}
+      {focusNodeId && (<div className="fixed top-20 right-6 z-[60] bg-indigo-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-fade-in"><Icon.Zap size={16} fill="currentColor" /><span className="text-sm font-bold">Focus Mode Active</span><button onClick={() => setFocusNodeId(null)} className="ml-2 hover:text-indigo-200"><Icon.Close size={16}/></button></div>)}
+      {linkSelectionMode && (<div className="fixed top-32 right-6 z-[60] bg-green-600/90 backdrop-blur-md text-white px-3 py-1.5 rounded-full shadow-clay-md flex items-center gap-3 animate-fade-in border border-green-400/50"><div className="flex items-center gap-2"><Icon.Connect size={14} className="animate-pulse text-green-100"/><span className="text-xs font-bold uppercase tracking-wider">Paint Mode</span></div><div className="w-px h-3 bg-white/20 hidden sm:block"></div><span className="text-[10px] font-medium text-green-50 hidden sm:inline">Drag to select</span><button onClick={() => setLinkSelectionMode(false)} className="ml-1 p-0.5 hover:bg-black/20 rounded-full transition-colors" title="Exit Mode"><Icon.Close size={12}/></button></div>)}
+      
+      {isPresentationFullscreen && (
+         <>
+         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] bg-black/80 backdrop-blur-md text-white px-6 py-3 rounded-full flex items-center gap-4 shadow-2xl border border-white/10 animate-slide-up">
+            <div className="flex items-center gap-2 mr-4"><Icon.Present size={20} className="text-green-400 animate-pulse" /><span className="font-bold text-sm">Interactive Narrative</span></div>
+            <div className="text-xs text-gray-400 border-l border-gray-600 pl-4">
+                Click <Icon.ChevronRight size={12} className="inline"/> to expand, <Icon.ChevronLeft size={12} className="inline"/> to collapse.
+            </div>
+            <div className="w-px h-6 bg-white/20 mx-2" />
+            <button onClick={() => { document.exitFullscreen(); setIsPresentationFullscreen(false); }} className="p-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-full transition-colors" title="Exit Presentation"><Icon.Stop size={20} /></button>
+         </div>
+         </>
+      )}
+
       <div 
         ref={containerRef} 
         className={`absolute inset-0 outline-none overflow-hidden ${getCursor()}`}
         style={{ overscrollBehavior: 'none', touchAction: 'none' }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        onMouseDown={handleMouseDown} 
+        onMouseMove={handleMouseMove} 
+        onMouseUp={handleMouseUp} 
         onContextMenu={handleCanvasContextMenu}
+        // Mobile Touch Handlers
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-          {/* Grid Layer */}
-          {canvasSettings.showGrid && (
-              <div 
-                className={`absolute inset-0 pointer-events-none ${bgPatternClass}`} 
-                style={{
-                    backgroundPosition: `${viewport.x}px ${viewport.y}px`,
-                    backgroundSize: `${scaledBgSize}px ${scaledBgSize}px`,
-                    opacity: currentTheme.isDark ? 0.1 : 0.4,
-                    filter: currentTheme.isDark ? 'invert(1)' : 'none'
-                }}
-              />
-          )}
-          
-          {/* Drawing Layer */}
-          <canvas 
-             ref={canvasRef} 
-             className="absolute inset-0 pointer-events-none z-0"
-          />
-          
-          {/* Selection Box */}
-          {selectionBox && (
-             <div 
-               className="absolute bg-blue-500/10 border border-blue-500 z-50 pointer-events-none"
-               style={{
-                  left: Math.min(selectionBox.start.x, selectionBox.current.x),
-                  top: Math.min(selectionBox.start.y, selectionBox.current.y),
-                  width: Math.abs(selectionBox.current.x - selectionBox.start.x),
-                  height: Math.abs(selectionBox.current.y - selectionBox.start.y)
-               }}
-             />
-          )}
-          
-          {/* Snap Lines */}
-          {snapLines.map((sl, idx) => (
-              <React.Fragment key={idx}>
-                  {sl.x !== undefined && <div className="absolute top-0 bottom-0 border-l-2 border-blue-500 border-dashed z-50 pointer-events-none" style={{ left: sl.x * viewport.zoom + viewport.x }} />}
-                  {sl.y !== undefined && <div className="absolute left-0 right-0 border-t-2 border-blue-500 border-dashed z-50 pointer-events-none" style={{ top: sl.y * viewport.zoom + viewport.y }} />}
-              </React.Fragment>
-          ))}
+        {canvasSettings.showGrid && (<div className={`absolute inset-0 pointer-events-none ${bgPatternClass}`} style={{ backgroundPosition: `${viewport.x}px ${viewport.y}px`, backgroundSize: `${scaledBgSize}px ${scaledBgSize}px`, opacity: currentTheme.isDark ? 0.1 : 0.4, filter: currentTheme.isDark ? 'invert(1)' : 'none', }} />)}
+        <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0" />
+        {selectionBox && (<div className="absolute bg-blue-500/10 border border-blue-500 z-50 pointer-events-none" style={{ left: Math.min(selectionBox.start.x, selectionBox.current.x), top: Math.min(selectionBox.start.y, selectionBox.current.y), width: Math.abs(selectionBox.current.x - selectionBox.start.x), height: Math.abs(selectionBox.current.y - selectionBox.start.y), }} />)}
+        
+        {snapLines.map((line, i) => (
+            <React.Fragment key={i}>
+                {line.x !== undefined && (
+                    <div 
+                        className="absolute top-0 bottom-0 border-l-2 border-blue-500 border-dashed z-50 pointer-events-none" 
+                        style={{ left: line.x * viewport.zoom + viewport.x }} 
+                    />
+                )}
+                {line.y !== undefined && (
+                    <div 
+                        className="absolute left-0 right-0 border-t-2 border-blue-500 border-dashed z-50 pointer-events-none" 
+                        style={{ top: line.y * viewport.zoom + viewport.y }} 
+                    />
+                )}
+            </React.Fragment>
+        ))}
 
-          {/* Transform Container */}
-          <div 
-            className="absolute origin-top-left z-10"
-            style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }}
-          >
-              {/* Edges and Nodes */}
-              <div id="canvas-content" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0 }}>
-                 <svg className="absolute overflow-visible" style={{ top: 0, left: 0, pointerEvents: 'none' }}>
-                    {nodes.map(node => node.childrenIds.map(childId => {
-                        const childNode = nodes.find(n => n.id === childId);
-                        if (!childNode || !(visibleNodeIds.has(node.id) && visibleNodeIds.has(childNode.id))) return null;
-                        const edgeKey = `${node.id}-${childId}`;
-                        const isEdgeDimmed = isNodeDimmed(node.id) || isNodeDimmed(childNode.id);
-                        
-                        return (
-                            <g key={edgeKey} style={{ pointerEvents: isEdgeDimmed ? 'none' : 'auto', opacity: isEdgeDimmed ? 0.2 : 1, transition: 'opacity 0.3s' }}>
-                                <ConnectionLine
-                                    start={node.position}
-                                    end={childNode.position}
-                                    isSelected={selectedEdgeIds.has(edgeKey)}
-                                    onDelete={() => {
-                                        const newNodes = nodes.map(n => n.id === node.id ? { ...n, childrenIds: n.childrenIds.filter(cid => cid !== childId) } : n);
-                                        updateState(newNodes);
-                                    }}
-                                    onContextMenu={(e) => handleEdgeContextMenu(e, edgeKey)}
-                                    onHandleMouseDown={(i, e) => handleEdgeHandleMouseDown(edgeKey, i, e)}
-                                    onLineClick={(e) => handleEdgeClick(edgeKey, e)}
-                                    onPointContextMenu={(i, e) => handlePointContextMenu(edgeKey, i, e)}
-                                    options={edgeData[edgeKey]}
-                                    themeColor={currentTheme.lineColor}
-                                    edgeId={edgeKey}
-                                />
-                            </g>
-                        );
-                    }))}
-                 </svg>
+        <div className="absolute origin-top-left z-10" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }}>
+          <div id="canvas-content" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0 }}>
+              <svg className="absolute overflow-visible" style={{ top: 0, left: 0, pointerEvents: 'none' }}>
+                {nodes.map(node => node.childrenIds.map(childId => { 
+                    const child = nodes.find(n => n.id === childId); 
+                    if (!child) return null; 
+                    
+                    const isVisible = visibleNodeIds.has(node.id) && visibleNodeIds.has(child.id);
+                    if (!isVisible) return null;
 
-                 {nodes.map((node, idx) => (
-                     visibleNodeIds.has(node.id) ? (
-                         <NodeComponent 
-                            key={node.id}
-                            node={node}
-                            isSelected={selectedNodeIds.has(node.id) || activeContextNodeId === node.id || connectSourceId === node.id}
-                            isHighlighted={searchResults.includes(node.id)}
-                            isDimmed={isNodeDimmed(node.id)}
-                            isEditing={editingNodeId === node.id}
-                            themeClasses={{
-                                root: currentTheme.nodeRoot,
-                                main: currentTheme.nodeMain,
-                                sub: currentTheme.nodeSub
-                            }}
-                            onMouseDown={handleNodeClick}
-                            onContextMenu={handleContextMenu}
-                            onAddChild={(pid) => handleAddNode(pid, false)}
-                            onDelete={(nid) => { const newNodes = nodes.filter(n => n.id !== nid); updateState(newNodes); }}
-                            onExpandAI={(nid) => { setAiTargetNodeId(nid); setIsAiOptionsOpen(true); }}
-                            onLabelChange={handleLabelChange}
-                            onToggleTask={handleToggleTask}
-                            onEditStart={setEditingNodeId}
-                            onEditEnd={() => setEditingNodeId(null)}
-                            connectMode={mode === ToolMode.CONNECT}
-                            onListChange={handleListChange}
-                            onDataChange={handleDataChange}
-                            isExpanded={!collapsedNodeIds.has(node.id)}
-                            onToggleExpand={handleToggleNodeExpansion}
-                         />
-                     ) : null
-                 ))}
-              </div>
+                    const edgeKey = `${node.id}-${childId}`; 
+                    const isDim = isNodeDimmed(node.id) || isNodeDimmed(child.id); 
+                    
+                    return (
+                        <g key={edgeKey} style={{ pointerEvents: isDim ? 'none' : 'auto', opacity: isDim ? 0.2 : 1, transition: 'opacity 0.3s' }}>
+                            <ConnectionLine 
+                                start={node.position} 
+                                end={child.position}
+                                isSelected={selectedEdgeIds.has(edgeKey)} 
+                                onDelete={() => { const newNodes = nodes.map(n => n.id === node.id ? { ...n, childrenIds: n.childrenIds.filter(id => id !== childId) } : n); updateState(newNodes); }} 
+                                onContextMenu={(e) => handleEdgeContextMenu(e, edgeKey)} 
+                                onHandleMouseDown={(index, e) => handleEdgeHandleMouseDown(edgeKey, index, e)} 
+                                onLineClick={(e) => handleEdgeClick(edgeKey, e)} 
+                                onPointContextMenu={(idx, e) => handlePointContextMenu(edgeKey, idx, e)} 
+                                options={edgeData[edgeKey]} 
+                                themeColor={currentTheme.lineColor} 
+                                edgeId={edgeKey} 
+                            />
+                        </g>
+                    ); 
+                }))}
+              </svg>
+              {nodes.map((node, index) => {
+                  if (!visibleNodeIds.has(node.id)) return null;
+
+                  return (
+                    <NodeComponent 
+                        key={node.id} 
+                        node={node} 
+                        isSelected={selectedNodeIds.has(node.id) || connectSourceId === node.id || activeContextNodeId === node.id} 
+                        isHighlighted={searchResults.includes(node.id)} 
+                        isDimmed={isNodeDimmed(node.id)} 
+                        isEditing={editingNodeId === node.id} 
+                        themeClasses={{ root: currentTheme.nodeRoot, main: currentTheme.nodeMain, sub: currentTheme.nodeSub }} 
+                        onMouseDown={handleNodeClick} 
+                        onContextMenu={handleContextMenu} 
+                        onAddChild={(id) => handleAddNode(id, false)} 
+                        onDelete={(id) => { const n = nodes.filter(x => x.id !== id); updateState(n); }} 
+                        onExpandAI={(id) => { setAiTargetNodeId(id); setIsAiOptionsOpen(true); }} 
+                        onLabelChange={handleLabelChange} 
+                        onToggleTask={handleToggleTask} 
+                        onEditStart={setEditingNodeId} 
+                        onEditEnd={() => setEditingNodeId(null)} 
+                        connectMode={mode === ToolMode.CONNECT} 
+                        onListChange={handleListChange} 
+                        onDataChange={handleDataChange}
+                        isExpanded={!collapsedNodeIds.has(node.id)}
+                        onToggleExpand={handleToggleNodeExpansion}
+                    />
+                  );
+              })}
           </div>
+        </div>
       </div>
 
-      {/* Creation & Toolbars */}
-      <CreationBar 
-          defaultEdgeOptions={defaultEdgeOptions} 
-          setDefaultEdgeOptions={setDefaultEdgeOptions}
-          defaultNodeShape={defaultNodeShape}
-          setDefaultNodeShape={setDefaultNodeShape}
-          defaultNodeColor={defaultNodeColor}
-          setDefaultNodeColor={setDefaultNodeColor}
-          className="fixed bottom-24 z-40 animate-slide-up origin-bottom pointer-events-none flex flex-col left-4 lg:left-1/2 lg:-translate-x-1/2 items-start lg:items-center"
-      />
-      
-      <div className="fixed bottom-40 left-4 right-4 lg:left-0 lg:right-0 flex flex-col items-start lg:items-center justify-end gap-2 pointer-events-none z-40">
-         <div className="flex flex-wrap-reverse justify-start lg:justify-center items-center gap-3 pointer-events-auto max-w-[calc(100%-140px)] md:max-w-[calc(100%-300px)] lg:max-w-[90vw] transition-all origin-bottom-left scale-90 md:scale-100">
-             <CustomToolbar 
-                tools={customTools} 
-                onAddClick={handleAddToolClick} 
-                onRemoveTool={handleRemoveTool} 
-                onDropTool={handleDropTool}
-                isSelectionMode={isToolSelectionMode}
-             />
-             {/* Mini Creation Bar embedded or next to it? It's rendered above in CreationBar component separately */}
-         </div>
-      </div>
+      {selectedNodeIds.size > 1 && <FloatingToolbar selectedCount={selectedNodeIds.size} onAction={handleSelectionAction} />}
+      {selectedEdgeIds.size > 0 && selectedNodeIds.size <= 1 && <FloatingToolbar selectedCount={selectedEdgeIds.size} onAction={handleAction} isEdgeMode={true} />}
 
-      {/* Status & Zoom */}
-      <StatusBar 
-        zoom={viewport.zoom} 
-        onZoomIn={() => handleAction('zoom-in')} 
-        onZoomOut={() => handleAction('zoom-out')} 
-        onZoomChange={(v) => setViewport(prev => ({...prev, zoom: v}))}
-        onFitView={() => handleAction('fit')}
-        onUndo={undo}
-        onRedo={redo}
-        canUndo={historyIndex > 0}
-        canRedo={historyIndex < history.length - 1}
-        onExpandAll={handleExpandAll}
-        onCollapseAll={handleCollapseAll}
-      />
-      
-      {/* Modals */}
+      <CommandPalette isOpen={isCmdPaletteOpen} onClose={() => setIsCmdPaletteOpen(false)} commands={commands} /> 
+      <ShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
       <ChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} nodes={nodes} onAction={handleAiActions} />
-      <MediaModal isOpen={isMediaModalOpen} onClose={() => setIsMediaModalOpen(false)} onImageAdd={(url, label) => {
-          const centerPos = { x: (window.innerWidth/2 - viewport.x)/viewport.zoom, y: (window.innerHeight/2 - viewport.y)/viewport.zoom };
-          handleAddNode(undefined, false, NodeType.MEDIA, undefined, label, undefined, { imageUrl: url }, centerPos);
-      }} />
+      <MediaModal isOpen={isMediaModalOpen} onClose={() => setIsMediaModalOpen(false)} onImageAdd={(url, label) => { const centerPos = { x: (window.innerWidth / 2 - viewport.x) / viewport.zoom, y: (window.innerHeight / 2 - viewport.y) / viewport.zoom }; handleAddNode(undefined, false, NodeType.MEDIA, undefined, label, undefined, { imageUrl: url }, centerPos); }} />
       <NewMapModal isOpen={isNewMapModalOpen} onClose={() => setIsNewMapModalOpen(false)} onCreate={handleCreateNewMap} />
-      <AiOptionsModal isOpen={isAiOptionsOpen} onClose={() => setIsAiOptionsOpen(false)} onGenerate={handleExpandNode} nodeLabel={aiTargetNodeId && getNodeById(aiTargetNodeId)?.label || ''} onLabelChange={(l) => aiTargetNodeId && handleLabelChange(aiTargetNodeId, l)} />
-      {aiTargetNodeId && <DreamModal isOpen={isDreamModalOpen} onClose={() => setIsDreamModalOpen(false)} nodeLabel={getNodeById(aiTargetNodeId)?.label || ''} onConfirm={handleDreamNode} />}
-      {showShapeDock && (
-        <ShapeDock 
-           nodePosition={activeNodeScreenPosition} 
-           zoom={viewport.zoom} 
-           nodeType={shapeDockTarget?.type}
-           onAction={handleContextMenuAction}
-           initialColor={shapeDockTarget?.color}
-        />
-      )}
-      {(activeEdgeId || activeControlPoint || (!activeContextNodeId && contextMenuAnchor)) && (
-         <ContextMenu 
-            anchorRect={contextMenuAnchor || { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }}
-            nodeId={null}
-            activeNodeType={undefined}
-            isEdge={!!activeEdgeId}
-            isControlPoint={!!activeControlPoint}
-            onClose={() => { setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); }}
-            onAction={handleContextMenuAction}
-         />
-      )}
+      <AiOptionsModal isOpen={isAiOptionsOpen} onClose={() => setIsAiOptionsOpen(false)} onGenerate={handleExpandNode} nodeLabel={aiTargetNodeId ? nodes.find(n => n.id === aiTargetNodeId)?.label || '' : ''} onLabelChange={(newLabel) => { if (aiTargetNodeId) handleLabelChange(aiTargetNodeId, newLabel); }} />
+      {aiTargetNodeId && (<DreamModal isOpen={isDreamModalOpen} onClose={() => setIsDreamModalOpen(false)} nodeLabel={nodes.find(n => n.id === aiTargetNodeId)?.label || ''} onConfirm={handleDreamNode} />)}
+      {showShapeDock && shapeDockTarget && (<ShapeDock nodePosition={activeNodeScreenPosition} zoom={viewport.zoom} nodeType={shapeDockTarget.type} onAction={handleContextMenuAction} initialColor={shapeDockTarget.color} />)}
+      {(activeEdgeId || activeControlPoint || (!activeContextNodeId && contextMenuAnchor)) && (<ContextMenu anchorRect={contextMenuAnchor ? { left: contextMenuAnchor.left, top: contextMenuAnchor.top, right: contextMenuAnchor.right, bottom: contextMenuAnchor.bottom, width: 0, height: 0 } : { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }} nodeId={null} activeNodeType={undefined} isEdge={!!activeEdgeId} isControlPoint={!!activeControlPoint} onClose={() => { setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); }} onAction={handleContextMenuAction} />)}
       
-      <ExportPreviewModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} nodes={nodes} projectName={projectName} format={exportFormat} elementId="canvas-content" />
-      <IntegrationsModal isOpen={false} onClose={() => {}} />
-
-      {/* Floating AI Button */}
-      {!isChatOpen && !isPresentationFullscreen && (
-        <button 
-           onClick={() => setIsChatOpen(true)}
-           className="fixed bottom-8 right-20 z-40 p-3 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white shadow-lg hover:scale-110 transition-transform animate-fade-in"
-           title="AI Co-Pilot (Alt + C)"
-        >
-            <Icon.Sparkles size={24} />
-        </button>
-      )}
-
+      <ExportPreviewModal 
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          nodes={nodes}
+          projectName={projectName}
+          format={exportFormat}
+          elementId="canvas-content"
+      />
+      <IntegrationsModal isOpen={false} onClose={() => {}} /> 
     </div>
   );
 };

@@ -14,6 +14,7 @@ interface StatusBarProps {
   canRedo: boolean;
   onExpandAll?: () => void;
   onCollapseAll?: () => void;
+  className?: string;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({ 
@@ -27,10 +28,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   canUndo,
   canRedo,
   onExpandAll,
-  onCollapseAll
+  onCollapseAll,
+  className
 }) => {
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 pointer-events-auto select-none">
+    <div className={className || "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 pointer-events-auto select-none"}>
       
       {/* Main Control Bar */}
       <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow-clay-lg p-1.5 flex items-center gap-1">
