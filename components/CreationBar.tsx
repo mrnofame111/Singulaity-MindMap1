@@ -68,14 +68,15 @@ export const CreationBar: React.FC<CreationBarProps> = ({
 
   const CurrentShapeIcon = SHAPES.find(s => s.id === defaultNodeShape)?.icon || Icon.ShapeRect;
 
-  // Ensure className fallback if not provided, positioning above bottom controls
-  const containerClass = className || "fixed bottom-24 left-1/2 -translate-x-1/2 z-40 animate-slide-up origin-bottom pointer-events-none flex flex-col items-center";
+  // Positioned in the flex stack bottom-left by parent in SingularityCanvas,
+  // so default className just needs to be non-fixed or relative to stack context.
+  const containerClass = className || "pointer-events-auto relative flex flex-col items-start";
 
   return (
     <div className={containerClass} style={style}>
       
       {/* Mini Bar Container */}
-      <div className="pointer-events-auto bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-clay-lg p-1.5 flex items-center gap-2 transition-all hover:shadow-clay-xl select-none">
+      <div className="bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-clay-lg p-1.5 flex items-center gap-2 transition-all hover:shadow-clay-xl select-none">
         
         {/* --- LINKS SECTION --- */}
         <div className="flex items-center gap-2 px-1">
@@ -115,7 +116,7 @@ export const CreationBar: React.FC<CreationBarProps> = ({
 
         {/* --- NODES SECTION --- */}
         <div className="flex items-center gap-2 px-1">
-            <div className="relative -translate-y-2" ref={menuRef}>
+            <div className="relative" ref={menuRef}>
                 <button 
                     onClick={() => setIsShapeMenuOpen(!isShapeMenuOpen)}
                     className="flex items-center justify-center w-9 h-9 bg-gray-50 hover:bg-gray-100 rounded-xl text-gray-600 border border-gray-200 hover:border-gray-300 transition-all shadow-sm"
@@ -125,7 +126,7 @@ export const CreationBar: React.FC<CreationBarProps> = ({
                 </button>
 
                 {isShapeMenuOpen && (
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white border border-gray-200 rounded-xl shadow-xl p-2 grid grid-cols-4 gap-1 z-50 min-w-[160px] animate-pop origin-bottom">
+                    <div className="absolute bottom-full left-0 mb-3 bg-white border border-gray-200 rounded-xl shadow-xl p-2 grid grid-cols-4 gap-1 z-50 min-w-[160px] animate-pop origin-bottom-left">
                         {SHAPES.map(s => (
                             <button
                                 key={s.id}
@@ -136,7 +137,7 @@ export const CreationBar: React.FC<CreationBarProps> = ({
                                 <s.icon size={18} />
                             </button>
                         ))}
-                        <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b border-r border-gray-200 rotate-45"></div>
+                        <div className="absolute -bottom-1.5 left-3 w-3 h-3 bg-white border-b border-r border-gray-200 rotate-45"></div>
                     </div>
                 )}
             </div>

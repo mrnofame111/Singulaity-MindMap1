@@ -32,13 +32,13 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   className
 }) => {
   return (
-    <div className={className || "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 pointer-events-auto select-none"}>
+    <div className={className || "pointer-events-auto select-none origin-bottom-left scale-90 md:scale-100 relative"}>
       
       {/* Main Control Bar */}
-      <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow-clay-lg p-1.5 flex items-center gap-1">
+      <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow-clay-lg p-1.5 flex items-center gap-1 max-w-[95vw] overflow-x-auto custom-scrollbar md:overflow-visible">
         
         {/* History */}
-        <div className="flex items-center">
+        <div className="flex items-center shrink-0">
           <button 
             onClick={onUndo} 
             disabled={!canUndo}
@@ -57,10 +57,10 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </button>
         </div>
 
-        <div className="w-px h-6 bg-gray-200 mx-1" />
+        <div className="w-px h-6 bg-gray-200 mx-1 shrink-0" />
 
         {/* Expand/Collapse Actions */}
-        <div className="flex items-center">
+        <div className="flex items-center shrink-0">
              {onCollapseAll && (
                 <button 
                     onClick={onCollapseAll}
@@ -81,10 +81,10 @@ export const StatusBar: React.FC<StatusBarProps> = ({
              )}
         </div>
 
-        <div className="w-px h-6 bg-gray-200 mx-1" />
+        <div className="w-px h-6 bg-gray-200 mx-1 hidden sm:block shrink-0" />
 
         {/* Zoom Controls */}
-        <div className="flex items-center gap-2 px-1">
+        <div className="flex items-center gap-2 px-1 shrink-0">
            <button 
               onClick={onZoomOut} 
               className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-100 text-gray-600 transition-colors"
@@ -100,7 +100,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                step="0.1" 
                value={zoom}
                onChange={(e) => onZoomChange(parseFloat(e.target.value))}
-               className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-gray-600 hover:accent-blue-600 transition-all"
+               className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-gray-600 hover:accent-blue-600 transition-all hidden md:block"
                title="Zoom Scale"
              />
              <div className="w-9 text-right font-mono font-bold text-xs text-gray-600 select-none">
@@ -116,11 +116,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
            </button>
         </div>
 
-        <div className="w-px h-6 bg-gray-200 mx-1" />
+        <div className="w-px h-6 bg-gray-200 mx-1 shrink-0" />
 
         <button 
            onClick={onFitView} 
-           className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-colors"
+           className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-colors shrink-0"
            title="Fit to Screen (L)"
         >
            <Icon.Maximize size={18} />

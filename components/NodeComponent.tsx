@@ -500,7 +500,9 @@ const NodeComponent: React.FC<NodeProps> = ({
             `}
             title={isExpanded ? "Collapse Branch" : "Expand Branch"}
           >
-              {isExpanded ? <Icon.ChevronRight size={16} strokeWidth={2.5} /> : <Icon.ChevronLeft size={16} strokeWidth={2.5} />}
+              {/* If Expanded (Visible Children) -> Show Left Chevron (<) to collapse */}
+              {/* If Collapsed (Hidden Children) -> Show Right Chevron (>) to expand */}
+              {isExpanded ? <Icon.ChevronLeft size={16} strokeWidth={2.5} /> : <Icon.ChevronRight size={16} strokeWidth={2.5} />}
           </div>
       )}
 

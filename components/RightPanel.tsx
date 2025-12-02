@@ -137,7 +137,8 @@ const ColorControl = ({ selected, onChange, allowAny = false, label, colors = PR
             {allowAny && (
                 <button
                   onClick={() => onChange('any')}
-                  className={`w-6 h-6 rounded-md border flex items-center justify-center text-[8px] font-bold bg-gray-50 text-gray-500 ${selected === 'any' ? 'ring-2 ring-blue-400 border-blue-400 text-blue-600' : 'border-gray-200 hover:border-blue-300'}`}
+                  className={`w-6 h-6 rounded-md border flex items-center justify-center text-[8px] font-bold bg-gray-50 text-gray-500 ${selected === 'any' ? 'ring-2 ring-blue-400 border-blue-400 text-blue-600' : 'border-gray-200 hover:border-blue-300'}
+                `}
                 >
                     ANY
                 </button>

@@ -381,7 +381,8 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           isActive = smartRules.sibling.shape;
       } else if (def.id.startsWith('tool:')) {
           const modeId = def.id.split(':')[1] as ToolMode;
-          action = () => setMode(modeId);
+          // Toggle logic: if active, revert to SELECT
+          action = () => setMode(prev => prev === modeId ? ToolMode.SELECT : modeId);
           isActive = mode === modeId;
       } else if (def.id.startsWith('action:')) {
           const act = def.id.split(':')[1];
@@ -411,15 +412,27 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
   const customTools = customToolDefs.map(resolveTool);
 
-  const handleAddToolClick = () => {
+  // -------------------------------------------------------------------------
+  // TOOL SELECTION MODE LOGIC
+  // -------------------------------------------------------------------------
+  const handleEnterSelectionMode = () => {
       setIsToolSelectionMode(true);
       setIsSidebarOpen(true);
       setIsRightPanelOpen(true);
   };
 
-  const handleToolSelect = (toolId: string, label: string, iconName: string) => {
-      setCustomToolDefs(prev => [...prev, { id: toolId, label, iconName }]);
+  const handleExitSelectionMode = () => {
       setIsToolSelectionMode(false);
+      setIsSidebarOpen(false);
+      setIsRightPanelOpen(false);
+  };
+
+  const handleToolSelect = (toolId: string, label: string, iconName: string) => {
+      // Prevent duplicates based on ID
+      if (!customToolDefs.find(t => t.id === toolId)) {
+          setCustomToolDefs(prev => [...prev, { id: toolId, label, iconName }]);
+      }
+      // NOTE: We DO NOT close the mode here. User can select multiple tools.
   };
 
   const handleRemoveTool = (index: number) => {
@@ -436,8 +449,14 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           next.splice(index, 0, { id: toolData.id, label: toolData.label, iconName: toolData.iconName });
           return next;
       });
-      setIsToolSelectionMode(false);
+      // Only turn off selection mode if it was drag-and-drop from a normal interaction, 
+      // but if we are in explicit selection mode, we might want to keep it open. 
+      // For now, let's keep it consistent: drag & drop is a single action.
+      if (!isToolSelectionMode) {
+         // No-op
+      }
   };
+  // -------------------------------------------------------------------------
 
   useEffect(() => {
     const key = `singularity-map-${mapId}`;
@@ -749,7 +768,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleAutoLayout = () => { handleLayoutAction('MINDMAP_LR'); };
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => { if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return; if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedEdgeIds.size > 0 && selectedNodeIds.size === 0) handleAction('edge-delete-selected'); else handleSelectionAction('delete'); } if (e.key === 'Tab') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, false); } if (e.key === 'Enter') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, true); } if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !isPresentationFullscreen) { e.preventDefault(); setMode(prev => prev === ToolMode.SELECT ? ToolMode.HAND : prev === ToolMode.HAND ? ToolMode.CONNECT : ToolMode.SELECT); } if (e.key.toLowerCase() === 'v') setMode(ToolMode.SELECT); if (e.key.toLowerCase() === 'h') setMode(ToolMode.HAND); if (e.key.toLowerCase() === 'd') setMode(ToolMode.DRAW); if (e.key.toLowerCase() === 'l') handleAutoLayout(); if (e.key.toLowerCase() === 'c') handleAction('center'); if (e.key === 'Escape') { setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); setConnectSourceId(null); setMode(ToolMode.SELECT); setIsFindOpen(false); setIsAiOptionsOpen(false); setIsMediaModalOpen(false); setIsShortcutsOpen(false); setIsCmdPaletteOpen(false); setIsDreamModalOpen(false); setIsExportModalOpen(false); setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); setFocusNodeId(null); if(isPresentationFullscreen) { document.exitFullscreen(); setIsPresentationFullscreen(false); } setIsToolSelectionMode(false); } if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y') { e.preventDefault(); redo(); } if (e.key === 'a') { e.preventDefault(); handleAction('select-all'); } if (e.key === 'f') { e.preventDefault(); handleAction('search'); } if (e.key === 'k') { e.preventDefault(); setIsCmdPaletteOpen(prev => !prev); } } if (e.ctrlKey && e.altKey) { if (e.key.toLowerCase() === 'c') { e.preventDefault(); handleAction('copy-style'); } if (e.key.toLowerCase() === 'v') { e.preventDefault(); handleAction('paste-style'); } } if (e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); handleAction('present'); } };
+    const handleKeyDown = (e: KeyboardEvent) => { if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return; if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedEdgeIds.size > 0 && selectedNodeIds.size === 0) handleAction('edge-delete-selected'); else handleSelectionAction('delete'); } if (e.key === 'Tab') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, false); } if (e.key === 'Enter') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, true); } if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !isPresentationFullscreen) { e.preventDefault(); setMode(prev => prev === ToolMode.SELECT ? ToolMode.HAND : prev === ToolMode.HAND ? ToolMode.CONNECT : ToolMode.SELECT); } if (e.key.toLowerCase() === 'v') setMode(ToolMode.SELECT); if (e.key.toLowerCase() === 'h') setMode(ToolMode.HAND); if (e.key.toLowerCase() === 'd') setMode(ToolMode.DRAW); if (e.key.toLowerCase() === 'l') handleAutoLayout(); if (e.key.toLowerCase() === 'c') handleAction('center'); if (e.key === 'Escape') { setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); setConnectSourceId(null); setMode(ToolMode.SELECT); setIsFindOpen(false); setIsAiOptionsOpen(false); setIsMediaModalOpen(false); setIsShortcutsOpen(false); setIsCmdPaletteOpen(false); setIsDreamModalOpen(false); setIsExportModalOpen(false); setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); setFocusNodeId(null); if(isPresentationFullscreen) { document.exitFullscreen(); setIsPresentationFullscreen(false); } setIsToolSelectionMode(false); setIsSidebarOpen(false); setIsRightPanelOpen(false); } if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y') { e.preventDefault(); redo(); } if (e.key === 'a') { e.preventDefault(); handleAction('select-all'); } if (e.key === 'f') { e.preventDefault(); handleAction('search'); } if (e.key === 'k') { e.preventDefault(); setIsCmdPaletteOpen(prev => !prev); } } if (e.ctrlKey && e.altKey) { if (e.key.toLowerCase() === 'c') { e.preventDefault(); handleAction('copy-style'); } if (e.key.toLowerCase() === 'v') { e.preventDefault(); handleAction('paste-style'); } } if (e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); handleAction('present'); } };
     window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodeIds, selectedEdgeIds, mode, nodes, edgeData, historyIndex, isPresentationFullscreen, styleClipboard, smartRules, defaultEdgeOptions, defaultNodeShape, defaultNodeColor, appMode]);
 
@@ -846,6 +865,10 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
      { id: 'redo', label: 'Redo Action', icon: <Icon.Redo size={18} />, action: redo, shortcut: 'Ctrl+Y' },
   ];
 
+  const handleAddToolClick = () => {
+    handleEnterSelectionMode();
+  };
+
   return (
     <div className={`w-full h-full relative overflow-hidden transition-colors duration-500 font-sans`} style={{ backgroundColor: currentTheme.bg }}>
       <svg width="0" height="0" className="absolute pointer-events-none"><defs><clipPath id="shape-cloud" clipPathUnits="objectBoundingBox"><path d="M0.25,0.55 Q0.25,0.25 0.5,0.25 Q0.6,0.1 0.75,0.25 Q0.9,0.25 0.9,0.5 Q1,0.5 1,0.7 Q1,0.9 0.85,0.95 Q0.7,1 0.5,1 Q0.3,1 0.15,0.95 Q0,0.85 0,0.7 Q0,0.55 0.25,0.55 Z" /></clipPath></defs></svg>
@@ -864,6 +887,19 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
         onToggleVoice={() => setIsVoiceActive(!isVoiceActive)}
       />
 
+      {/* SELECTION MODE TOP BAR */}
+      {isToolSelectionMode && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] animate-slide-up bg-black/80 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4">
+              <span className="text-sm font-bold">Select tools from sidebars</span>
+              <button 
+                  onClick={handleExitSelectionMode}
+                  className="bg-white text-black px-4 py-1.5 rounded-full text-xs font-black hover:bg-gray-200 transition-colors"
+              >
+                  Done
+              </button>
+          </div>
+      )}
+
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} activeMode={mode} setMode={setMode} onAction={handleAction} appMode={appMode} setAppMode={setAppMode} drawingSettings={drawingSettings} setDrawingSettings={setDrawingSettings} defaultEdgeOptions={defaultEdgeOptions} setDefaultEdgeOptions={setDefaultEdgeOptions} isSelectionMode={isToolSelectionMode} onToolSelect={handleToolSelect} />
       
       <OutlinePanel isOpen={isOutlineOpen} setIsOpen={setIsOutlineOpen} nodes={nodes} onSelectNode={(id) => { const node = getNodeById(id); if (node) { setFocusNodeId(id); centerOnNode(id); } }} isSidebarOpen={isSidebarOpen} />
@@ -881,9 +917,11 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       </button>
 
       {/* TOOLBAR STACK - BOTTOM LEFT */}
-      <div className="fixed bottom-6 left-4 z-50 flex flex-col items-start gap-3 pointer-events-none">
+      <div className={`fixed bottom-6 z-50 flex flex-col gap-2 pointer-events-none items-start
+            left-4
+      `}>
            {/* 3rd Layer: Custom Tools */}
-           <div className="pointer-events-auto">
+           <div className="pointer-events-auto flex justify-start">
                <CustomToolbar 
                   tools={customTools} 
                   onAddClick={handleAddToolClick} 
@@ -901,7 +939,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               setDefaultNodeShape={setDefaultNodeShape}
               defaultNodeColor={defaultNodeColor}
               setDefaultNodeColor={setDefaultNodeColor}
-              className="pointer-events-auto"
+              className="pointer-events-auto relative flex flex-col items-start" 
            />
 
            {/* 1st Layer: Status Bar (Undo/Redo/Zoom) */}
@@ -917,7 +955,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               canRedo={historyIndex < history.length - 1}
               onExpandAll={handleExpandAll}
               onCollapseAll={handleCollapseAll}
-              className="pointer-events-auto flex items-center gap-2 select-none origin-bottom-left scale-90 md:scale-100"
+              className="pointer-events-auto flex items-center gap-2 select-none origin-bottom-left scale-90 md:scale-100 relative"
            />
       </div>
       

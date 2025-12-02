@@ -29,9 +29,9 @@ export const Minimap: React.FC<MinimapProps> = ({ nodes, viewport, windowSize: i
   // World Configuration
   const worldSize = 6000;
   
-  // Responsive Settings
+  // Responsive Settings - REDUCED SIZE
   const isMobile = windowDims.w < 768;
-  const mapSize = isMobile ? 120 : 240; 
+  const mapSize = isMobile ? 100 : 180; 
   
   const scale = mapSize / worldSize;
   const offset = worldSize / 2;

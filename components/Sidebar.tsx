@@ -65,21 +65,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setActiveSubMenu(prev => prev === menu ? null : menu);
   };
 
-  const handleToolClick = (mode: ToolMode) => {
-    setMode(mode);
+  const handleToolClick = (targetMode: ToolMode) => {
+    if (activeMode === targetMode) {
+      setMode(ToolMode.SELECT); // Toggle off
+      // Only close submenu if we are toggling off the mode associated with it?
+      // Generally safe to keep menu open or close it. Let's close for cleaner UI.
+      // setActiveSubMenu(null); 
+    } else {
+      setMode(targetMode);
+    }
   };
 
-  const handleDropper = async () => {
+  const handleDropper = async (onPick: (color: string) => void) => {
       if (!(window as any).EyeDropper) return;
       try {
           const eyeDropper = new (window as any).EyeDropper();
           const result = await eyeDropper.open();
-          const color = result.sRGBHex;
-          if (activeSubMenu === 'CONNECT' && setDefaultEdgeOptions && defaultEdgeOptions) {
-              setDefaultEdgeOptions({ ...defaultEdgeOptions, color });
-          } else if (activeSubMenu === 'DRAW' && setDrawingSettings && drawingSettings) {
-              setDrawingSettings({ ...drawingSettings, color });
-          }
+          onPick(result.sRGBHex);
       } catch (e) { console.error(e); }
   };
 
@@ -174,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Line Style</span>
                             <div className="flex gap-1">
-                                <button onClick={handleDropper} className="p-1 hover:bg-gray-100 rounded text-gray-500"><Icon.Pipette size={14}/></button>
+                                <button onClick={() => handleDropper((c) => setDefaultEdgeOptions({...defaultEdgeOptions, color: c}))} className="p-1 hover:bg-gray-100 rounded text-gray-500"><Icon.Pipette size={14}/></button>
                                 <label className="p-1 hover:bg-gray-100 rounded text-gray-500 cursor-pointer relative">
                                     <Icon.Palette size={14}/>
                                     <input 
@@ -225,7 +227,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </DraggableToolButton>
 
               <DraggableToolButton id="tool:DRAW" label="Draw" iconName="Pen" onClick={() => { toggleSubMenu('DRAW'); handleToolClick(ToolMode.DRAW); }}>
-                  <SidebarBtn icon={Icon.Pen} label="Draw" isActive={activeSubMenu === 'DRAW'} hasSub shortcut="D" />
+                  <SidebarBtn icon={Icon.Pen} label="Draw" isActive={activeMode === ToolMode.DRAW || activeSubMenu === 'DRAW'} hasSub shortcut="D" />
               </DraggableToolButton>
 
               <DraggableToolButton id="create:code" label="Code" iconName="Code" onClick={() => toggleSubMenu('CODE')}>
@@ -275,6 +277,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {activeSubMenu === 'STICKY' && (
                         <div className="space-y-3">
                           <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Note Color</span>
+                          <div className="flex gap-1.5 items-center">
+                             <input 
+                                type="color" 
+                                className="w-8 h-8 rounded-full cursor-pointer border-0"
+                                onChange={(e) => onAction('new-sticky-color', e.target.value)}
+                                title="Custom Color"
+                             />
+                             <button onClick={() => handleDropper((c) => onAction('new-sticky-color', c))} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600"><Icon.Pipette size={16}/></button>
+                          </div>
                           <div className="flex justify-between gap-1">
                               {[{ c: '#fef3c7' }, { c: '#fce7f3' }, { c: '#dbeafe' }, { c: '#dcfce7' }].map((item) => (
                                 <button
@@ -293,7 +304,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Ink Color</span>
                                 <div className="flex gap-1">
-                                    <button onClick={handleDropper} className="p-1 hover:bg-gray-100 rounded text-gray-500"><Icon.Pipette size={14}/></button>
+                                    <button onClick={() => handleDropper((c) => setDrawingSettings({...drawingSettings, color: c}))} className="p-1 hover:bg-gray-100 rounded text-gray-500"><Icon.Pipette size={14}/></button>
                                     <input type="color" value={drawingSettings.color} onChange={(e) => setDrawingSettings({...drawingSettings, color: e.target.value})} className="w-6 h-6 rounded cursor-pointer" />
                                 </div>
                             </div>
@@ -301,7 +312,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 {['pen', 'highlighter', 'eraser'].map(t => (
                                   <button 
                                       key={t}
-                                      onClick={() => setDrawingSettings({...drawingSettings, tool: t})}
+                                      onClick={() => {
+                                          setDrawingSettings({...drawingSettings, tool: t});
+                                          // Ensure mode is set when tool changes within the menu
+                                          if (activeMode !== ToolMode.DRAW) setMode(ToolMode.DRAW);
+                                      }}
                                       className={`flex-1 py-1 rounded flex justify-center ${drawingSettings.tool === t ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}
                                   >
                                       {t === 'pen' && <Icon.Pen size={16}/>}
