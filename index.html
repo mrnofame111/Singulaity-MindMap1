@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Singularity – MindMap</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Fredoka:wght@400;600&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Nunito', 'sans-serif'],
+              display: ['Fredoka', 'sans-serif'],
+            },
+            colors: {
+              canvas: '#f0f4f8', // Milk White / Soft Blue-Grey
+              'clay-card': '#ffffff',
+              'clay-text': '#2d3436',
+            },
+            boxShadow: {
+              'clay-xl': '20px 20px 60px #d1d9e6, -20px -20px 60px #ffffff',
+              'clay-lg': '12px 12px 24px #d1d9e6, -12px -12px 24px #ffffff',
+              'clay-md': '9px 9px 16px #d1d9e6, -9px -9px 16px #ffffff',
+              'clay-sm': '5px 5px 10px #d1d9e6, -5px -5px 10px #ffffff',
+              'clay-inner': 'inset 6px 6px 12px #d1d9e6, inset -6px -6px 12px #ffffff',
+              'clay-btn': '6px 6px 12px #b8b9be, -6px -6px 12px #ffffff',
+            },
+            backgroundImage: {
+               'dots-pattern': "radial-gradient(#94a3b8 1.5px, transparent 1.5px)",
+               'grid-pattern': "linear-gradient(to right, #e2e8f0 1px, transparent 1px), linear-gradient(to bottom, #e2e8f0 1px, transparent 1px)",
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.15s ease-out forwards',
+              'slide-up': 'slideUp 0.3s ease-out forwards',
+              'flow': 'dash 1s linear infinite',
+              'drawer': 'drawer-slide 0.2s ease-out forwards',
+            }
+          },
+        },
+      }
+    </script>
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overscroll-behavior: none; /* Prevents rubber-banding on Mac/Mobile */
+      }
+      body {
+        background-color: #f0f4f8;
+        color: #2d3436;
+        overflow: hidden; /* Strict overflow hiding */
+      }
+      /* Hide scrollbars for the canvas container */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+      /* Singularity Custom Scrollbar */
+      .custom-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: rgba(100, 116, 139, 0.3);
+        border-radius: 20px;
+        transition: background-color 0.2s ease;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(100, 116, 139, 0.5);
+      }
+
+      /* Dark Mode overrides for scrollbar */
+      html.dark .custom-scrollbar {
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      }
+      html.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.2);
+      }
+      html.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(255, 255, 255, 0.3);
+      }
+      
+      @keyframes pop-in {
+        0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+        100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+      }
+      .animate-pop {
+        animation: pop-in 0.2s ease-out forwards;
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      
+      @keyframes slideUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      @keyframes dash {
+        to {
+          stroke-dashoffset: -20;
+        }
+      }
+
+      /* Smooth Drawer Slide */
+      @keyframes drawer-slide {
+        0% { transform: translate(-50%, -10px); opacity: 0; }
+        100% { transform: translate(-50%, 0); opacity: 1; }
+      }
+      
+      .animate-flow {
+        stroke-dasharray: 10;
+        animation: dash 1s linear infinite;
+      }
+
+      .animate-fade-in {
+        animation: fadeIn 0.15s ease-out forwards;
+      }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "html-to-image": "https://aistudiocdn.com/html-to-image@^1.11.13",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "url": "https://aistudiocdn.com/url@^0.11.4",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

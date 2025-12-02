@@ -1,0 +1,8 @@
+{
+  "name": "Copy of Copy of Singularity – MindMap",
+  "description": "Next-gen AI-powered visual thinking workspace. Create mind maps, flowcharts, and diagrams on an infinite canvas.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
