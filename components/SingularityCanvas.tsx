@@ -800,7 +800,14 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
     if (mode === ToolMode.DRAW) { const x = (e.clientX - viewport.x) / viewport.zoom; const y = (e.clientY - viewport.y) / viewport.zoom; setCurrentPath({ id: generateId(), points: [{x,y}], color: drawingSettings.color, width: drawingSettings.width, type: drawingSettings.tool === 'pen' || drawingSettings.tool === 'eraser' ? 'pen' : 'highlighter', isEraser: drawingSettings.tool === 'eraser' }); return; }
     setDragStartPos({ x: e.clientX, y: e.clientY }); hasDraggedRef.current = false; 
     if (mode === ToolMode.HAND) { setIsDragging(true); setLastMousePos({ x: e.clientX, y: e.clientY }); return; }
-    if (mode === ToolMode.SELECT || mode === ToolMode.CONNECT) { if (!e.ctrlKey && !e.shiftKey && e.target === containerRef.current) { setSelectionBox({ start: {x: e.clientX, y: e.clientY}, current: {x: e.clientX, y: e.clientY} }); setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); } }
+    
+    if (mode === ToolMode.SELECT || mode === ToolMode.CONNECT) { 
+       if (!e.ctrlKey && !e.shiftKey) { 
+          setSelectionBox({ start: {x: e.clientX, y: e.clientY}, current: {x: e.clientX, y: e.clientY} }); 
+          setSelectedNodeIds(new Set()); 
+          setSelectedEdgeIds(new Set()); 
+       } 
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -963,14 +970,30 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
       <Minimap nodes={nodes} viewport={viewport} windowSize={{ w: window.innerWidth, h: window.innerHeight }} setViewport={setViewport} />
       
-      {selectedNodeIds.size > 0 && (
-          <div className="fixed bottom-8 right-[200px] z-50 animate-fade-in">
+      {/* FOCUS MODE BUTTON (TOP RIGHT) - Replaces old button/indicator */}
+      {(selectedNodeIds.size > 0 || focusNodeId) && (
+          <div className="fixed top-20 right-6 z-[60] animate-fade-in flex flex-col items-end gap-2">
               <button 
-                onClick={() => handleAction('focus')}
-                className="bg-white/90 hover:bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl shadow-clay-md border border-indigo-100 flex items-center gap-2 font-bold text-xs transition-all hover:scale-105"
+                onClick={() => {
+                    if(focusNodeId) setFocusNodeId(null);
+                    else handleAction('focus');
+                }}
+                className={`
+                    flex items-center gap-2 px-4 py-2 rounded-full shadow-clay-md border transition-all hover:scale-105
+                    ${focusNodeId 
+                        ? 'bg-indigo-600 text-white border-indigo-500' 
+                        : 'bg-white/90 hover:bg-indigo-50 text-indigo-600 border-indigo-100'
+                    }
+                `}
               >
-                  <Icon.Zap size={16} /> Focus Mode
+                  <Icon.Zap size={16} fill={focusNodeId ? "currentColor" : "none"} /> 
+                  <span className="text-xs font-bold">{focusNodeId ? "Exit Focus" : "Focus Branch"}</span>
               </button>
+              {focusNodeId && (
+                  <div className="bg-black/80 text-white text-[10px] px-3 py-1 rounded-full backdrop-blur-sm font-medium shadow-sm">
+                      Filtering non-branch nodes
+                  </div>
+              )}
           </div>
       )}
 
@@ -987,7 +1010,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           </div>
       )}
 
-      {focusNodeId && (<div className="fixed top-20 right-6 z-[60] bg-indigo-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-fade-in"><Icon.Zap size={16} fill="currentColor" /><span className="text-sm font-bold">Focus Mode Active</span><button onClick={() => setFocusNodeId(null)} className="ml-2 hover:text-indigo-200"><Icon.Close size={16}/></button></div>)}
       {linkSelectionMode && (<div className="fixed top-32 right-6 z-[60] bg-green-600/90 backdrop-blur-md text-white px-3 py-1.5 rounded-full shadow-clay-md flex items-center gap-3 animate-fade-in border border-green-400/50"><div className="flex items-center gap-2"><Icon.Connect size={14} className="animate-pulse text-green-100"/><span className="text-xs font-bold uppercase tracking-wider">Paint Mode</span></div><div className="w-px h-3 bg-white/20 hidden sm:block"></div><span className="text-[10px] font-medium text-green-50 hidden sm:inline">Drag to select</span><button onClick={() => setLinkSelectionMode(false)} className="ml-1 p-0.5 hover:bg-black/20 rounded-full transition-colors" title="Exit Mode"><Icon.Close size={12}/></button></div>)}
       
       {isPresentationFullscreen && (
