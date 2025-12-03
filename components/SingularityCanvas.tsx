@@ -235,7 +235,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const [customToolDefs, setCustomToolDefs] = useState<{id: string, label: string, iconName: string}[]>([]);
   const [isToolSelectionMode, setIsToolSelectionMode] = useState(false);
   
-  // New State for Alt-Click linking
+  // New State for Alt-Click / Connect Mode linking
   const [altLinkSourceId, setAltLinkSourceId] = useState<string | null>(null);
   const [tempLinkEndPos, setTempLinkEndPos] = useState<{x: number, y: number} | null>(null);
 
@@ -451,7 +451,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleAddToolClick = () => {
     handleEnterSelectionMode();
   };
-
+  
   useEffect(() => {
     const key = `singularity-map-${mapId}`;
     const savedData = localStorage.getItem(key);
@@ -519,6 +519,21 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           const isDoubleTapStart = (now - lastTouchEndTimeRef.current) < 300;
           
           const hitEl = document.elementFromPoint(touch.clientX, touch.clientY);
+          
+          // Check for Connection Handle touch first
+          const handleEl = hitEl?.closest('.connection-handle');
+          if (handleEl) {
+              const nodeId = handleEl.getAttribute('data-node-id');
+              if (nodeId) {
+                  setAltLinkSourceId(nodeId);
+                  const node = nodes.find(n => n.id === nodeId);
+                  if (node) {
+                      setTempLinkEndPos({ x: node.position.x, y: node.position.y });
+                  }
+                  return; // Stop processing standard touch start
+              }
+          }
+
           const nodeEl = hitEl?.closest('[data-node-id]');
           const hitNodeId = nodeEl?.getAttribute('data-node-id');
           const hitNode = hitNodeId ? nodes.find(n => n.id === hitNodeId) : null;
@@ -527,6 +542,15 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               isPotentialAreaSelectionRef.current = true;
               if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
           } else if (hitNode) {
+              // If CONNECT mode is active on mobile, start dragging connection immediately
+              if (mode === ToolMode.CONNECT) {
+                   setAltLinkSourceId(hitNode.id);
+                   setTempLinkEndPos({ x: hitNode.position.x, y: hitNode.position.y });
+                   // Don't select or drag node
+                   if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                   return; 
+              }
+
               if (!isMultiSelectMode) {
                   let newSelection = new Set<string>();
                   if (selectedNodeIds.has(hitNode.id)) {
@@ -568,6 +592,15 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           const touch = e.touches[0];
           const last = lastTouchPosRef.current;
           if (!last) return;
+
+          // --- Update Connection Line if dragging ---
+          if (altLinkSourceId) {
+              const x = (touch.clientX - viewport.x) / viewport.zoom;
+              const y = (touch.clientY - viewport.y) / viewport.zoom;
+              setTempLinkEndPos({ x, y });
+              return; // Don't pan or drag nodes while linking
+          }
+          // ----------------------------------------
 
           const dx = touch.clientX - last.x;
           const dy = touch.clientY - last.y;
@@ -673,6 +706,28 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       isPotentialAreaSelectionRef.current = false;
 
       if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+
+      // --- Handle Connection Drop ---
+      if (altLinkSourceId) {
+          const touch = e.changedTouches[0];
+          const hitEl = document.elementFromPoint(touch.clientX, touch.clientY);
+          const nodeEl = hitEl?.closest('[data-node-id]');
+          const hitNodeId = nodeEl?.getAttribute('data-node-id');
+          
+          if (hitNodeId && hitNodeId !== altLinkSourceId) {
+               const source = getNodeById(altLinkSourceId);
+               if (source && !source.childrenIds.includes(hitNodeId)) {
+                  const newNodes = nodes.map(n => n.id === altLinkSourceId ? { ...n, childrenIds: [...n.childrenIds, hitNodeId] } : n);
+                  const edgeKey = `${altLinkSourceId}-${hitNodeId}`;
+                  const newEdgeData = { ...edgeData, [edgeKey]: { ...defaultEdgeOptions } };
+                  updateState(newNodes, drawings, newEdgeData);
+               }
+          }
+          setAltLinkSourceId(null);
+          setTempLinkEndPos(null);
+          return;
+      }
+      // ------------------------------
       
       if (selectionBox) {
           setSelectionBox(null);
@@ -704,6 +759,8 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                       else newSet.add(hitNode.id);
                       setSelectedNodeIds(newSet);
                   } else {
+                      // In regular mode, simulate click for selection
+                      // Note: if mode was CONNECT, we handled it in TouchStart, so this won't trigger unless mode changed
                       handleNodeClick({ stopPropagation: () => {}, preventDefault: () => {}, shiftKey: false, ctrlKey: false, altKey: false, clientX: lastTouchPosRef.current.x, clientY: lastTouchPosRef.current.y } as any, hitNode.id);
                   }
               } else {
@@ -733,6 +790,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleCollapseAll = () => { const allParents = new Set<string>(); nodes.forEach(n => { if (n.childrenIds.length > 0) allParents.add(n.id); }); setCollapsedNodeIds(allParents); };
   const centerOnNode = (nodeId: string, targetZoom?: number) => { const node = nodes.find(n => n.id === nodeId); if (node) { const z = targetZoom || viewport.zoom; const newX = (window.innerWidth / 2) - (node.position.x * z); const newY = (window.innerHeight / 2) - (node.position.y * z); setViewport({ x: newX, y: newY, zoom: z }); } };
 
+  // ... (Rest of logic: handleCreateNewMap, handleSummarizeBranch, etc. keep as is)
   const handleCreateNewMap = async (goal: string) => { setIsNewMapModalOpen(false); setIsGenerating(true); if (!goal.trim()) { updateState(INITIAL_NODES, [], {}); setViewport({ x: window.innerWidth / 2, y: window.innerHeight / 2, zoom: 1 }); setIsGenerating(false); return; } const aiData = await generateMindMapData(goal); if (aiData) { const center = { x: 0, y: 0 }; const layoutNodes = calculateLayout(aiData, center.x, center.y); const organicNodes = layoutOrganic(layoutNodes); updateState(organicNodes, [], {}); setViewport({ x: window.innerWidth / 2, y: window.innerHeight / 2, zoom: 1 }); setProjectName(goal); } else { alert("AI could not generate the map. Starting blank."); updateState(INITIAL_NODES, [], {}); } setIsGenerating(false); };
   const handleSummarizeBranch = async (nodeId: string) => { const rootNode = getNodeById(nodeId); if (!rootNode) return; setIsGenerating(true); let structureText = ""; const traverse = (id: string, depth: number) => { const node = getNodeById(id); if (node) { structureText += `${'  '.repeat(depth)}- ${node.label}\n`; node.childrenIds.forEach(cid => traverse(cid, depth + 1)); } }; traverse(nodeId, 0); const summary = await summarizeBranch(rootNode.label, structureText); const noteId = generateId(); const newNote: SingularityNode = { id: noteId, type: NodeType.NOTE, label: `📝 Summary of ${rootNode.label}:\n\n${summary}`, position: { x: rootNode.position.x + 350, y: rootNode.position.y }, childrenIds: [], shape: 'rectangle', color: '#fff740' }; const newNodes = nodes.map(n => n.id === nodeId ? { ...n, childrenIds: [...n.childrenIds, noteId] } : n); const edgeKey = `${nodeId}-${noteId}`; const newEdgeData = { ...edgeData, [edgeKey]: { stroke: 'dashed' as const, color: '#fbbf24' } }; updateState([...newNodes, newNote], drawings, newEdgeData); setIsGenerating(false); };
   const handleDreamNode = async (style: string) => { const targetId = aiTargetNodeId; const node = nodes.find(n => n.id === targetId); if (!node) return; const parent = nodes.find(n => n.id === node.parentId); const context = parent ? parent.label : 'Main Concept'; updateState(nodes.map(n => n.id === targetId ? { ...n, data: { ...n.data, isDreaming: true } } : n)); const imageUrl = await generateDreamImage(node.label, context, style); if (imageUrl) { updateState(nodes.map(n => n.id === targetId ? { ...n, type: NodeType.MEDIA, data: { ...n.data, imageUrl, isDreaming: false } } : n)); } else { updateState(nodes.map(n => n.id === targetId ? { ...n, data: { ...n.data, isDreaming: false } } : n)); alert("Could not dream up an image. Try again."); } };
@@ -829,7 +887,31 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
     if (isDragging || dragNodeIds.size > 0 || selectionBox) { const dx = clientX - lastMousePos.x; const dy = clientY - lastMousePos.y; setLastMousePos({ x: clientX, y: clientY }); cancelAnimationFrame(dragFrameRef.current); dragFrameRef.current = requestAnimationFrame(() => { if (isDragging) { setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); } else if (selectionBox) { setSelectionBox(prev => prev ? { ...prev, current: {x: clientX, y: clientY} } : null); } else if (dragNodeIds.size > 0) { hasDraggedRef.current = true; const deltaX = dx / viewport.zoom; const deltaY = dy / viewport.zoom; let snapX: number | undefined; let snapY: number | undefined; if (!e.altKey && dragNodeIds.size === 1) { const movedNodeId = Array.from(dragNodeIds)[0]; const movedNode = nodes.find(n => n.id === movedNodeId); if (movedNode) { const proposedX = movedNode.position.x + deltaX; const proposedY = movedNode.position.y + deltaY; nodes.forEach(other => { if (dragNodeIds.has(other.id)) return; if (Math.abs(other.position.x - proposedX) < SNAP_THRESHOLD) snapX = other.position.x; if (Math.abs(other.position.y - proposedY) < SNAP_THRESHOLD) snapY = other.position.y; }); } } setSnapLines(snapX !== undefined || snapY !== undefined ? [{ x: snapX, y: snapY }] : []); setNodes(prev => prev.map(n => { if (dragNodeIds.has(n.id)) { return { ...n, position: { x: snapX !== undefined ? snapX : n.position.x + deltaX, y: snapY !== undefined ? snapY : n.position.y + deltaY } }; } return n; })); setEdgeData(prev => { const next = { ...prev }; let changed = false; dragNodeIds.forEach(sourceId => { const sourceNode = nodes.find(n => n.id === sourceId); if (sourceNode) { sourceNode.childrenIds.forEach(targetId => { if (dragNodeIds.has(targetId)) { const key = `${sourceId}-${targetId}`; const edge = next[key]; if (edge && edge.controlPoints && edge.controlPoints.length > 0) { changed = true; next[key] = { ...edge, controlPoints: edge.controlPoints.map(p => ({ x: p.x + deltaX, y: p.y + deltaY })) }; } } }); } }); return changed ? next : prev; }); } }); } else { setLastMousePos({ x: clientX, y: clientY }); }
   };
 
-  const handleMouseUp = (e: React.MouseEvent) => { cancelAnimationFrame(dragFrameRef.current); setSnapLines([]); if (isRightPanning) { setIsRightPanning(false); return; } if (isPaintingLinks) { setIsPaintingLinks(false); return; } if (mode === ToolMode.DRAW && currentPath) { updateState(nodes, [...drawings, currentPath], edgeData); setCurrentPath(null); return; } if (edgeControlDrag) { setEdgeControlDrag(null); commitHistory(nodes, drawings, edgeData); return; } if (selectionBox) { const x1 = Math.min(selectionBox.start.x, selectionBox.current.x); const y1 = Math.min(selectionBox.start.y, selectionBox.current.y); const x2 = Math.max(selectionBox.start.x, selectionBox.current.x); const y2 = Math.max(selectionBox.start.y, selectionBox.current.y); const wx1 = (x1 - viewport.x) / viewport.zoom; const wy1 = (y1 - viewport.y) / viewport.zoom; const wx2 = (x2 - viewport.x) / viewport.zoom; const wy2 = (y2 - viewport.y) / viewport.zoom; const newSelection = new Set<string>(e.shiftKey ? selectedNodeIds : []); const newEdgeSelection = new Set<string>(e.shiftKey ? selectedEdgeIds : []); nodes.forEach(node => { const isFocusRestricted = focusNodeId && !focusedDescendantIds.has(node.id); if (!isFocusRestricted && node.position.x >= wx1 && node.position.x <= wx2 && node.position.y >= wy1 && node.position.y <= wy2) { newSelection.add(node.id); } }); Object.keys(edgeData).forEach(key => { const parsed = parseEdgeId(key); if (parsed) { const { sourceId: sId, targetId: tId } = parsed; const sNode = nodes.find(n => n.id === sId); const tNode = nodes.find(n => n.id === tId); if (sNode && tNode) { const sRestricted = focusNodeId && !focusedDescendantIds.has(sId); const tRestricted = focusNodeId && !focusedDescendantIds.has(tId); if (!sRestricted && !tRestricted) { const sIn = sNode.position.x >= wx1 && sNode.position.x <= wx2 && sNode.position.y >= wy1 && sNode.position.y <= wy2; const tIn = tNode.position.x >= wx1 && tNode.position.x <= wx2 && tNode.position.y >= wy1 && tNode.position.y <= wy2; if (sIn && tIn) newEdgeSelection.add(key); else { const midX = (sNode.position.x + tNode.position.x) / 2; const midY = (sNode.position.y + tNode.position.y) / 2; if (midX >= wx1 && midX <= wx2 && midY >= wy1 && midY <= wy2) newEdgeSelection.add(key); const cps = edgeData[key].controlPoints || []; for(const cp of cps) { if (cp.x >= wx1 && cp.x <= wx2 && cp.y >= wy1 && cp.y <= wy2) { newEdgeSelection.add(key); break; } } } } } } }); setSelectedNodeIds(newSelection); setSelectedEdgeIds(newEdgeSelection); setSelectionBox(null); return; } setIsDragging(false); if (dragNodeIds.size > 0) { if (hasDraggedRef.current) commitHistory(nodes, drawings, edgeData); hasDraggedRef.current = false; } setDragNodeIds(new Set()); };
+  const handleMouseUp = (e: React.MouseEvent) => { 
+      cancelAnimationFrame(dragFrameRef.current); 
+      setSnapLines([]); 
+
+      if (altLinkSourceId) {
+          // Check if mouse up over a node to complete link
+          const hitEl = document.elementFromPoint(e.clientX, e.clientY);
+          const nodeEl = hitEl?.closest('[data-node-id]');
+          const hitNodeId = nodeEl?.getAttribute('data-node-id');
+
+          if (hitNodeId && hitNodeId !== altLinkSourceId) {
+              const source = getNodeById(altLinkSourceId);
+              if (source && !source.childrenIds.includes(hitNodeId)) {
+                  const newNodes = nodes.map(n => n.id === altLinkSourceId ? { ...n, childrenIds: [...n.childrenIds, hitNodeId] } : n);
+                  const edgeKey = `${altLinkSourceId}-${hitNodeId}`;
+                  const newEdgeData = { ...edgeData, [edgeKey]: { ...defaultEdgeOptions } };
+                  updateState(newNodes, drawings, newEdgeData);
+              }
+          }
+          setAltLinkSourceId(null);
+          setTempLinkEndPos(null);
+          return;
+      }
+
+      if (isRightPanning) { setIsRightPanning(false); return; } if (isPaintingLinks) { setIsPaintingLinks(false); return; } if (mode === ToolMode.DRAW && currentPath) { updateState(nodes, [...drawings, currentPath], edgeData); setCurrentPath(null); return; } if (edgeControlDrag) { setEdgeControlDrag(null); commitHistory(nodes, drawings, edgeData); return; } if (selectionBox) { const x1 = Math.min(selectionBox.start.x, selectionBox.current.x); const y1 = Math.min(selectionBox.start.y, selectionBox.current.y); const x2 = Math.max(selectionBox.start.x, selectionBox.current.x); const y2 = Math.max(selectionBox.start.y, selectionBox.current.y); const wx1 = (x1 - viewport.x) / viewport.zoom; const wy1 = (y1 - viewport.y) / viewport.zoom; const wx2 = (x2 - viewport.x) / viewport.zoom; const wy2 = (y2 - viewport.y) / viewport.zoom; const newSelection = new Set<string>(e.shiftKey ? selectedNodeIds : []); const newEdgeSelection = new Set<string>(e.shiftKey ? selectedEdgeIds : []); nodes.forEach(node => { const isFocusRestricted = focusNodeId && !focusedDescendantIds.has(node.id); if (!isFocusRestricted && node.position.x >= wx1 && node.position.x <= wx2 && node.position.y >= wy1 && node.position.y <= wy2) { newSelection.add(node.id); } }); Object.keys(edgeData).forEach(key => { const parsed = parseEdgeId(key); if (parsed) { const { sourceId: sId, targetId: tId } = parsed; const sNode = nodes.find(n => n.id === sId); const tNode = nodes.find(n => n.id === tId); if (sNode && tNode) { const sRestricted = focusNodeId && !focusedDescendantIds.has(sId); const tRestricted = focusNodeId && !focusedDescendantIds.has(tId); if (!sRestricted && !tRestricted) { const sIn = sNode.position.x >= wx1 && sNode.position.x <= wx2 && sNode.position.y >= wy1 && sNode.position.y <= wy2; const tIn = tNode.position.x >= wx1 && tNode.position.x <= wx2 && tNode.position.y >= wy1 && tNode.position.y <= wy2; if (sIn && tIn) newEdgeSelection.add(key); else { const midX = (sNode.position.x + tNode.position.x) / 2; const midY = (sNode.position.y + tNode.position.y) / 2; if (midX >= wx1 && midX <= wx2 && midY >= wy1 && midY <= wy2) newEdgeSelection.add(key); const cps = edgeData[key].controlPoints || []; for(const cp of cps) { if (cp.x >= wx1 && cp.x <= wx2 && cp.y >= wy1 && cp.y <= wy2) { newEdgeSelection.add(key); break; } } } } } } }); setSelectedNodeIds(newSelection); setSelectedEdgeIds(newEdgeSelection); setSelectionBox(null); return; } setIsDragging(false); if (dragNodeIds.size > 0) { if (hasDraggedRef.current) commitHistory(nodes, drawings, edgeData); hasDraggedRef.current = false; } setDragNodeIds(new Set()); };
 
   const handleEdgeHandleMouseDown = (edgeKey: string, index: number, e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); setEdgeControlDrag({ edgeKey, index }); };
   const handleEdgeClick = (edgeKey: string, e: React.MouseEvent) => { e.stopPropagation(); if (mode === ToolMode.CONNECT) return; if (e.shiftKey) { const newSet = new Set(selectedEdgeIds); if (newSet.has(edgeKey)) newSet.delete(edgeKey); else newSet.add(edgeKey); setSelectedEdgeIds(newSet); } else { setSelectedEdgeIds(new Set([edgeKey])); setSelectedNodeIds(new Set()); } };
@@ -840,7 +922,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
     if (activeEdgeId || activeControlPoint || contextMenuAnchor) { setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); }
     
     // --- Alt Click for Linking (Overriding previous branch select) ---
-    if (e.altKey) {
+    if (e.altKey || mode === ToolMode.CONNECT) {
         if (!altLinkSourceId) {
             // Start linking
             setAltLinkSourceId(nodeId);
@@ -871,9 +953,8 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
     if (linkSelectionMode) return;
     if (e.shiftKey) { const node = nodes.find(n => n.id === nodeId); if (node) { const currentShape = node.shape || defaultNodeShape; const currentIndex = NODE_SHAPES_CYCLE.indexOf(currentShape); const nextIndex = (currentIndex === -1 ? 0 : currentIndex + 1) % NODE_SHAPES_CYCLE.length; const nextShape = NODE_SHAPES_CYCLE[nextIndex]; const newNodes = nodes.map(n => n.id === nodeId ? { ...n, shape: nextShape } : n); updateState(newNodes); if (!selectedNodeIds.has(nodeId)) setSelectedNodeIds(new Set([nodeId])); } return; }
-    // Removed previous Alt-key logic for branch select as requested
+    
     const isMultiSelect = e.ctrlKey || e.metaKey || isMultiSelectMode;
-    if (mode === ToolMode.CONNECT && !isMultiSelect) { if (selectedNodeIds.size > 0) { const targetId = nodeId; const newNodes = nodes.map(n => { if (selectedNodeIds.has(n.id) && n.id !== targetId && !n.childrenIds.includes(targetId)) return { ...n, childrenIds: [...n.childrenIds, targetId] }; return n; }); if (JSON.stringify(newNodes) !== JSON.stringify(nodes)) { const updates: any = {}; selectedNodeIds.forEach(sid => { if (sid !== targetId && !getNodeById(sid)?.childrenIds.includes(targetId)) { updates[`${sid}-${targetId}`] = { ...defaultEdgeOptions }; } }); setEdgeData(prev => ({ ...prev, ...updates })); updateState(newNodes, drawings, { ...edgeData, ...updates }); } return; } if (!connectSourceId) { setConnectSourceId(nodeId); if(selectedNodeIds.size > 0) setSelectedNodeIds(new Set()); } else { if (connectSourceId !== nodeId) { const source = getNodeById(connectSourceId); if (source && !source.childrenIds.includes(nodeId)) { const newNodes = nodes.map(n => n.id === connectSourceId ? { ...n, childrenIds: [...n.childrenIds, nodeId] } : n); const edgeKey = `${connectSourceId}-${nodeId}`; const newEdgeData = { ...edgeData, [edgeKey]: { ...defaultEdgeOptions } }; updateState(newNodes, drawings, newEdgeData); } } setConnectSourceId(null); } return; }
     let newSelection = new Set<string>(selectedNodeIds); if (isMultiSelect) { if (newSelection.has(nodeId)) newSelection.delete(nodeId); else newSelection.add(nodeId); } else { if (!newSelection.has(nodeId)) newSelection = new Set<string>([nodeId]); }
     setSelectedNodeIds(newSelection); if (!isMultiSelect) setSelectedEdgeIds(new Set());
     let dragSet = new Set(newSelection); setDragNodeIds(dragSet); setLastMousePos({ x: e.clientX, y: e.clientY });
@@ -920,6 +1001,9 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       return node ? node.position : { x: 0, y: 0 };
   };
 
+  // Get selected node for drag handle rendering
+  const singleSelectedNode = selectedNodeIds.size === 1 ? nodes.find(n => n.id === Array.from(selectedNodeIds)[0]) : null;
+
   return (
     <div className={`w-full h-full relative overflow-hidden transition-colors duration-500 font-sans`} style={{ backgroundColor: currentTheme.bg }}>
       <svg width="0" height="0" className="absolute pointer-events-none"><defs><clipPath id="shape-cloud" clipPathUnits="objectBoundingBox"><path d="M0.25,0.55 Q0.25,0.25 0.5,0.25 Q0.6,0.1 0.75,0.25 Q0.9,0.25 0.9,0.5 Q1,0.5 1,0.7 Q1,0.9 0.85,0.95 Q0.7,1 0.5,1 Q0.3,1 0.15,0.95 Q0,0.85 0,0.7 Q0,0.55 0.25,0.55 Z" /></clipPath></defs></svg>
@@ -954,6 +1038,18 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} activeMode={mode} setMode={setMode} onAction={handleAction} appMode={appMode} setAppMode={setAppMode} drawingSettings={drawingSettings} setDrawingSettings={setDrawingSettings} defaultEdgeOptions={defaultEdgeOptions} setDefaultEdgeOptions={setDefaultEdgeOptions} isSelectionMode={isToolSelectionMode} onToolSelect={handleToolSelect} />
       
       <OutlinePanel isOpen={isOutlineOpen} setIsOpen={setIsOutlineOpen} nodes={nodes} onSelectNode={(id) => { const node = getNodeById(id); if (node) { setFocusNodeId(id); centerOnNode(id); } }} isSidebarOpen={isSidebarOpen} />
+
+      {/* CONNECT MODE TOGGLE (MOBILE) - Positioned below Multi-Select */}
+      <button 
+         onClick={() => setMode(mode === ToolMode.CONNECT ? ToolMode.SELECT : ToolMode.CONNECT)}
+         className={`fixed top-[12rem] z-[60] p-2.5 rounded-lg shadow-clay-md border transition-all duration-300 ease-in-out
+            ${mode === ToolMode.CONNECT ? 'bg-green-50 border-green-500 text-green-600' : 'bg-white border-gray-200 text-gray-500 hover:text-green-600 hover:border-green-400'}
+         `}
+         style={{ left: isSidebarOpen ? '280px' : '16px' }}
+         title="Toggle Connect Mode"
+      >
+          {mode === ToolMode.CONNECT ? <Icon.Connect size={20} /> : <Icon.Connect size={20} className="opacity-50" />}
+      </button>
 
       {/* MULTI SELECT TOGGLE (MOBILE) - MOVED TO TOP-44 */}
       <button 
@@ -1175,6 +1271,34 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                     />
                   );
               })}
+              
+              {/* --- CONNECTION HANDLE (FOR DRAG & DROP LINKING) --- */}
+              {singleSelectedNode && (
+                  <div 
+                      className="connection-handle absolute z-50 flex items-center justify-center w-6 h-6 bg-blue-500 text-white rounded-full shadow-md border-2 border-white cursor-crosshair hover:scale-110 transition-transform touch-none"
+                      style={{ 
+                          left: singleSelectedNode.position.x + 50, // Offset to right
+                          top: singleSelectedNode.position.y, 
+                          transform: 'translate(-50%, -50%)' 
+                      }}
+                      data-node-id={singleSelectedNode.id}
+                      onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setAltLinkSourceId(singleSelectedNode.id);
+                          setTempLinkEndPos({ x: singleSelectedNode.position.x, y: singleSelectedNode.position.y });
+                      }}
+                      onTouchStart={(e) => {
+                          // Handled in main TouchStart but we prevent bubbling here just in case
+                          // Actually main handler uses elementFromPoint so it will catch this.
+                          // But stopping prop helps prevent node selection logic from firing again.
+                          // We'll let main handler deal with it via class check.
+                      }}
+                      title="Drag to connect"
+                  >
+                      <Icon.Plus size={14} />
+                  </div>
+              )}
+
           </div>
         </div>
       </div>
