@@ -164,7 +164,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   });
   
   const [linkSelectionMode, setLinkSelectionMode] = useState(false);
-  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false); // New: Mobile Multi-Select Toggle
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false); 
   const [isPaintingLinks, setIsPaintingLinks] = useState(false);
   const [styleClipboard, setStyleClipboard] = useState<{ color?: string, shape?: NodeShape } | null>(null);
 
@@ -189,7 +189,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const [isNewMapModalOpen, setIsNewMapModalOpen] = useState(false);
   const [isDreamModalOpen, setIsDreamModalOpen] = useState(false);
   
-  // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<'PNG' | 'JPEG' | 'SVG'>('PNG');
 
@@ -235,13 +234,17 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
   const [customToolDefs, setCustomToolDefs] = useState<{id: string, label: string, iconName: string}[]>([]);
   const [isToolSelectionMode, setIsToolSelectionMode] = useState(false);
+  
+  // New State for Alt-Click linking
+  const [altLinkSourceId, setAltLinkSourceId] = useState<string | null>(null);
+  const [tempLinkEndPos, setTempLinkEndPos] = useState<{x: number, y: number} | null>(null);
 
   // VOICE COMMAND STATE
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   const currentTheme = APP_THEMES[canvasSettings.theme] || APP_THEMES['default'];
-
+  
   useEffect(() => {
     if (isVoiceActive) {
       if (!('webkitSpeechRecognition' in window)) {
@@ -319,7 +322,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const visibleNodeIds = useMemo(() => {
       return getVisibleNodeIds(nodes, collapsedNodeIds);
   }, [nodes, collapsedNodeIds]);
-
+  
   useEffect(() => {
     if (!focusNodeId) {
         setFocusedDescendantIds(new Set());
@@ -364,7 +367,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   useEffect(() => {
       localStorage.setItem(`singularity-custom-toolbar-${mapId}`, JSON.stringify(customToolDefs));
   }, [customToolDefs, mapId]);
-
+  
   const resolveTool = (def: { id: string, label: string, iconName: string }): CustomTool => {
       const icon = (Icon as any)[def.iconName] || Icon.Help;
       let action = (payload?: any) => {};
@@ -381,7 +384,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           isActive = smartRules.sibling.shape;
       } else if (def.id.startsWith('tool:')) {
           const modeId = def.id.split(':')[1] as ToolMode;
-          // Toggle logic: if active, revert to SELECT
           action = () => setMode(prev => prev === modeId ? ToolMode.SELECT : modeId);
           isActive = mode === modeId;
       } else if (def.id.startsWith('action:')) {
@@ -412,9 +414,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
   const customTools = customToolDefs.map(resolveTool);
 
-  // -------------------------------------------------------------------------
-  // TOOL SELECTION MODE LOGIC
-  // -------------------------------------------------------------------------
   const handleEnterSelectionMode = () => {
       setIsToolSelectionMode(true);
       setIsSidebarOpen(true);
@@ -428,11 +427,9 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   };
 
   const handleToolSelect = (toolId: string, label: string, iconName: string) => {
-      // Prevent duplicates based on ID
       if (!customToolDefs.find(t => t.id === toolId)) {
           setCustomToolDefs(prev => [...prev, { id: toolId, label, iconName }]);
       }
-      // NOTE: We DO NOT close the mode here. User can select multiple tools.
   };
 
   const handleRemoveTool = (index: number) => {
@@ -449,14 +446,11 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           next.splice(index, 0, { id: toolData.id, label: toolData.label, iconName: toolData.iconName });
           return next;
       });
-      // Only turn off selection mode if it was drag-and-drop from a normal interaction, 
-      // but if we are in explicit selection mode, we might want to keep it open. 
-      // For now, let's keep it consistent: drag & drop is a single action.
-      if (!isToolSelectionMode) {
-         // No-op
-      }
   };
-  // -------------------------------------------------------------------------
+
+  const handleAddToolClick = () => {
+    handleEnterSelectionMode();
+  };
 
   useEffect(() => {
     const key = `singularity-map-${mapId}`;
@@ -768,7 +762,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleAutoLayout = () => { handleLayoutAction('MINDMAP_LR'); };
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => { if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return; if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedEdgeIds.size > 0 && selectedNodeIds.size === 0) handleAction('edge-delete-selected'); else handleSelectionAction('delete'); } if (e.key === 'Tab') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, false); } if (e.key === 'Enter') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, true); } if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !isPresentationFullscreen) { e.preventDefault(); setMode(prev => prev === ToolMode.SELECT ? ToolMode.HAND : prev === ToolMode.HAND ? ToolMode.CONNECT : ToolMode.SELECT); } if (e.key.toLowerCase() === 'v') setMode(ToolMode.SELECT); if (e.key.toLowerCase() === 'h') setMode(ToolMode.HAND); if (e.key.toLowerCase() === 'd') setMode(ToolMode.DRAW); if (e.key.toLowerCase() === 'l') handleAutoLayout(); if (e.key.toLowerCase() === 'c') handleAction('center'); if (e.key === 'Escape') { setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); setConnectSourceId(null); setMode(ToolMode.SELECT); setIsFindOpen(false); setIsAiOptionsOpen(false); setIsMediaModalOpen(false); setIsShortcutsOpen(false); setIsCmdPaletteOpen(false); setIsDreamModalOpen(false); setIsExportModalOpen(false); setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); setFocusNodeId(null); if(isPresentationFullscreen) { document.exitFullscreen(); setIsPresentationFullscreen(false); } setIsToolSelectionMode(false); setIsSidebarOpen(false); setIsRightPanelOpen(false); } if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y') { e.preventDefault(); redo(); } if (e.key === 'a') { e.preventDefault(); handleAction('select-all'); } if (e.key === 'f') { e.preventDefault(); handleAction('search'); } if (e.key === 'k') { e.preventDefault(); setIsCmdPaletteOpen(prev => !prev); } } if (e.ctrlKey && e.altKey) { if (e.key.toLowerCase() === 'c') { e.preventDefault(); handleAction('copy-style'); } if (e.key.toLowerCase() === 'v') { e.preventDefault(); handleAction('paste-style'); } } if (e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); handleAction('present'); } };
+    const handleKeyDown = (e: KeyboardEvent) => { if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return; if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedEdgeIds.size > 0 && selectedNodeIds.size === 0) handleAction('edge-delete-selected'); else handleSelectionAction('delete'); } if (e.key === 'Tab') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, false); } if (e.key === 'Enter') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, true); } if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !isPresentationFullscreen) { e.preventDefault(); setMode(prev => prev === ToolMode.SELECT ? ToolMode.HAND : prev === ToolMode.HAND ? ToolMode.CONNECT : ToolMode.SELECT); } if (e.key.toLowerCase() === 'v') setMode(ToolMode.SELECT); if (e.key.toLowerCase() === 'h') setMode(ToolMode.HAND); if (e.key.toLowerCase() === 'd') setMode(ToolMode.DRAW); if (e.key.toLowerCase() === 'l') handleAutoLayout(); if (e.key.toLowerCase() === 'c') handleAction('center'); if (e.key === 'Escape') { setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); setConnectSourceId(null); setAltLinkSourceId(null); setTempLinkEndPos(null); setMode(ToolMode.SELECT); setIsFindOpen(false); setIsAiOptionsOpen(false); setIsMediaModalOpen(false); setIsShortcutsOpen(false); setIsCmdPaletteOpen(false); setIsDreamModalOpen(false); setIsExportModalOpen(false); setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); setFocusNodeId(null); if(isPresentationFullscreen) { document.exitFullscreen(); setIsPresentationFullscreen(false); } setIsToolSelectionMode(false); setIsSidebarOpen(false); setIsRightPanelOpen(false); } if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y') { e.preventDefault(); redo(); } if (e.key === 'a') { e.preventDefault(); handleAction('select-all'); } if (e.key === 'f') { e.preventDefault(); handleAction('search'); } if (e.key === 'k') { e.preventDefault(); setIsCmdPaletteOpen(prev => !prev); } } if (e.ctrlKey && e.altKey) { if (e.key.toLowerCase() === 'c') { e.preventDefault(); handleAction('copy-style'); } if (e.key.toLowerCase() === 'v') { e.preventDefault(); handleAction('paste-style'); } } if (e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); handleAction('present'); } };
     window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodeIds, selectedEdgeIds, mode, nodes, edgeData, historyIndex, isPresentationFullscreen, styleClipboard, smartRules, defaultEdgeOptions, defaultNodeShape, defaultNodeColor, appMode]);
 
@@ -800,6 +794,13 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
     if (mode === ToolMode.DRAW) { const x = (e.clientX - viewport.x) / viewport.zoom; const y = (e.clientY - viewport.y) / viewport.zoom; setCurrentPath({ id: generateId(), points: [{x,y}], color: drawingSettings.color, width: drawingSettings.width, type: drawingSettings.tool === 'pen' || drawingSettings.tool === 'eraser' ? 'pen' : 'highlighter', isEraser: drawingSettings.tool === 'eraser' }); return; }
     setDragStartPos({ x: e.clientX, y: e.clientY }); hasDraggedRef.current = false; 
     if (mode === ToolMode.HAND) { setIsDragging(true); setLastMousePos({ x: e.clientX, y: e.clientY }); return; }
+
+    // Handle clearing Alt-Link state if clicking on canvas (not on node)
+    if (altLinkSourceId) {
+        setAltLinkSourceId(null);
+        setTempLinkEndPos(null);
+        return;
+    }
     
     if (mode === ToolMode.SELECT || mode === ToolMode.CONNECT) { 
        if (!e.ctrlKey && !e.shiftKey) { 
@@ -812,6 +813,15 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const clientX = e.clientX; const clientY = e.clientY;
+    
+    // --- Alt Link Tracking ---
+    if (altLinkSourceId) {
+        const x = (clientX - viewport.x) / viewport.zoom;
+        const y = (clientY - viewport.y) / viewport.zoom;
+        setTempLinkEndPos({ x, y });
+    }
+    // -------------------------
+
     if (isRightPanning) { const dx = clientX - lastMousePos.x; const dy = clientY - lastMousePos.y; if (Math.abs(dx) > 2 || Math.abs(dy) > 2) { setHasMovedSinceRightClick(true); setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); } setLastMousePos({ x: clientX, y: clientY }); return; }
     if (isPaintingLinks) { const el = document.elementFromPoint(clientX, clientY); const edgeId = el?.getAttribute('data-edge-id'); if (edgeId && !selectedEdgeIds.has(edgeId)) { const parsed = parseEdgeId(edgeId); if (parsed) { const { sourceId, targetId } = parsed; const sRestricted = focusNodeId && !focusedDescendantIds.has(sourceId); const tRestricted = focusNodeId && !focusedDescendantIds.has(targetId); if (!sRestricted && !tRestricted) { setSelectedEdgeIds(prev => { const newSet = new Set(prev); newSet.add(edgeId); return newSet; }); } } } return; }
     if (mode === ToolMode.DRAW && currentPath) { const x = (clientX - viewport.x) / viewport.zoom; const y = (clientY - viewport.y) / viewport.zoom; setCurrentPath(prev => prev ? { ...prev, points: [...prev.points, {x,y}] } : null); return; }
@@ -828,9 +838,40 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
     e.stopPropagation(); 
     if (activeContextNodeId && activeContextNodeId !== nodeId) setActiveContextNodeId(null); 
     if (activeEdgeId || activeControlPoint || contextMenuAnchor) { setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); }
+    
+    // --- Alt Click for Linking (Overriding previous branch select) ---
+    if (e.altKey) {
+        if (!altLinkSourceId) {
+            // Start linking
+            setAltLinkSourceId(nodeId);
+            const node = nodes.find(n => n.id === nodeId);
+            if (node) {
+                setTempLinkEndPos({ x: node.position.x, y: node.position.y });
+            }
+            // Clear existing selection to avoid confusion
+            setSelectedNodeIds(new Set([nodeId])); 
+        } else {
+            // Complete linking
+            if (altLinkSourceId !== nodeId) {
+                 const source = getNodeById(altLinkSourceId);
+                 if (source && !source.childrenIds.includes(nodeId)) {
+                    const newNodes = nodes.map(n => n.id === altLinkSourceId ? { ...n, childrenIds: [...n.childrenIds, nodeId] } : n);
+                    const edgeKey = `${altLinkSourceId}-${nodeId}`;
+                    const newEdgeData = { ...edgeData, [edgeKey]: { ...defaultEdgeOptions } };
+                    updateState(newNodes, drawings, newEdgeData);
+                 }
+            }
+            // Reset link state
+            setAltLinkSourceId(null);
+            setTempLinkEndPos(null);
+        }
+        return;
+    }
+    // ---------------------------------------------------------------
+
     if (linkSelectionMode) return;
     if (e.shiftKey) { const node = nodes.find(n => n.id === nodeId); if (node) { const currentShape = node.shape || defaultNodeShape; const currentIndex = NODE_SHAPES_CYCLE.indexOf(currentShape); const nextIndex = (currentIndex === -1 ? 0 : currentIndex + 1) % NODE_SHAPES_CYCLE.length; const nextShape = NODE_SHAPES_CYCLE[nextIndex]; const newNodes = nodes.map(n => n.id === nodeId ? { ...n, shape: nextShape } : n); updateState(newNodes); if (!selectedNodeIds.has(nodeId)) setSelectedNodeIds(new Set([nodeId])); } return; }
-    if (e.altKey) { const branchNodes = new Set<string>(); const branchEdges = new Set<string>(); const traverse = (id: string) => { branchNodes.add(id); const node = nodes.find(n => n.id === id); if (node) { node.childrenIds.forEach(childId => { branchEdges.add(`${id}-${childId}`); traverse(childId); }); } }; traverse(nodeId); setSelectedNodeIds(branchNodes); setSelectedEdgeIds(branchEdges); return; }
+    // Removed previous Alt-key logic for branch select as requested
     const isMultiSelect = e.ctrlKey || e.metaKey || isMultiSelectMode;
     if (mode === ToolMode.CONNECT && !isMultiSelect) { if (selectedNodeIds.size > 0) { const targetId = nodeId; const newNodes = nodes.map(n => { if (selectedNodeIds.has(n.id) && n.id !== targetId && !n.childrenIds.includes(targetId)) return { ...n, childrenIds: [...n.childrenIds, targetId] }; return n; }); if (JSON.stringify(newNodes) !== JSON.stringify(nodes)) { const updates: any = {}; selectedNodeIds.forEach(sid => { if (sid !== targetId && !getNodeById(sid)?.childrenIds.includes(targetId)) { updates[`${sid}-${targetId}`] = { ...defaultEdgeOptions }; } }); setEdgeData(prev => ({ ...prev, ...updates })); updateState(newNodes, drawings, { ...edgeData, ...updates }); } return; } if (!connectSourceId) { setConnectSourceId(nodeId); if(selectedNodeIds.size > 0) setSelectedNodeIds(new Set()); } else { if (connectSourceId !== nodeId) { const source = getNodeById(connectSourceId); if (source && !source.childrenIds.includes(nodeId)) { const newNodes = nodes.map(n => n.id === connectSourceId ? { ...n, childrenIds: [...n.childrenIds, nodeId] } : n); const edgeKey = `${connectSourceId}-${nodeId}`; const newEdgeData = { ...edgeData, [edgeKey]: { ...defaultEdgeOptions } }; updateState(newNodes, drawings, newEdgeData); } } setConnectSourceId(null); } return; }
     let newSelection = new Set<string>(selectedNodeIds); if (isMultiSelect) { if (newSelection.has(nodeId)) newSelection.delete(nodeId); else newSelection.add(nodeId); } else { if (!newSelection.has(nodeId)) newSelection = new Set<string>([nodeId]); }
@@ -871,9 +912,12 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
      { id: 'undo', label: 'Undo Action', icon: <Icon.Undo size={18} />, action: undo, shortcut: 'Ctrl+Z' },
      { id: 'redo', label: 'Redo Action', icon: <Icon.Redo size={18} />, action: redo, shortcut: 'Ctrl+Y' },
   ];
-
-  const handleAddToolClick = () => {
-    handleEnterSelectionMode();
+  
+  // Helper to get temp line start position
+  const getTempLinkStartPos = () => {
+      if (!altLinkSourceId) return { x: 0, y: 0 };
+      const node = nodes.find(n => n.id === altLinkSourceId);
+      return node ? node.position : { x: 0, y: 0 };
   };
 
   return (
@@ -1090,6 +1134,17 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                         </g>
                     ); 
                 }))}
+
+                {/* TEMPORARY ALT LINK LINE */}
+                {altLinkSourceId && tempLinkEndPos && (
+                    <ConnectionLine
+                        start={getTempLinkStartPos()}
+                        end={tempLinkEndPos}
+                        onDelete={() => {}}
+                        options={{ ...defaultEdgeOptions, stroke: 'dashed', animated: true }}
+                        themeColor={currentTheme.lineColor}
+                    />
+                )}
               </svg>
               {nodes.map((node, index) => {
                   if (!visibleNodeIds.has(node.id)) return null;
@@ -1098,7 +1153,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                     <NodeComponent 
                         key={node.id} 
                         node={node} 
-                        isSelected={selectedNodeIds.has(node.id) || connectSourceId === node.id || activeContextNodeId === node.id} 
+                        isSelected={selectedNodeIds.has(node.id) || connectSourceId === node.id || activeContextNodeId === node.id || altLinkSourceId === node.id} 
                         isHighlighted={searchResults.includes(node.id)} 
                         isDimmed={isNodeDimmed(node.id)} 
                         isEditing={editingNodeId === node.id} 
