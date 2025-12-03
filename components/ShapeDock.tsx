@@ -310,7 +310,7 @@ export const ShapeDock: React.FC<ShapeDockProps> = ({ nodePosition, zoom, nodeTy
   return (
     <div 
       ref={menuRef}
-      className={`fixed z-[90] flex flex-col pointer-events-none transition-all duration-300
+      className={`fixed z-[90] flex flex-col pointer-events-none
         ${isMobile 
             ? 'left-0 right-0 bottom-4 items-center justify-end px-4' // Mobile: Fixed bottom center
             : '' // Desktop: Positioned via style
