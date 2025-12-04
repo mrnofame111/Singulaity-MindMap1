@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from './Icons';
 import { TEMPLATES } from '../constants';
 import { supabase } from '../lib/supabase';
-import { fetchMapsFromCloud, deleteMapFromCloud } from '../services/cloudService';
+import { fetchMapsFromCloud, deleteMapFromCloud, resetCloudStatus } from '../services/cloudService';
+import { SettingsModal } from './SettingsModal';
+import { UpgradeModal } from './UpgradeModal';
 
 interface MapMetadata {
     id: string;
@@ -17,8 +19,8 @@ interface HomeScreenProps {
     onOpenMap: (id: string) => void;
     onCreateMap: (data?: any) => void;
     onBackToLanding: () => void;
-    onLoginClick: () => void; // New prop
-    user: any; // New prop
+    onLoginClick: () => void; 
+    user: any; 
 }
 
 type TabType = 'MY_MAPS' | 'TEMPLATES' | 'SHARED' | 'TRASH';
@@ -29,6 +31,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
     const [activeTab, setActiveTab] = useState<TabType>('MY_MAPS');
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [isLoadingCloud, setIsLoadingCloud] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isCloudOffline, setIsCloudOffline] = useState(false);
+    const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
     // Delete Confirmation State
     const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -60,15 +65,54 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
         }
     };
 
-    const loadCloudMaps = async () => {
+    const loadCloudMaps = async (isRetry = false) => {
+        if (isRetry) {
+            resetCloudStatus();
+        }
         setIsLoadingCloud(true);
+        setIsCloudOffline(false);
         try {
             const cloudMaps = await fetchMapsFromCloud();
-            setMaps(cloudMaps);
+            if (cloudMaps === null) {
+                // Cloud unavailable
+                setIsCloudOffline(true);
+                loadLocalMaps();
+            } else {
+                setMaps(cloudMaps);
+            }
         } catch (e) {
-            console.error("Failed to load cloud maps", e);
+            console.error("Failed to load cloud maps, falling back to local", e);
+            setIsCloudOffline(true);
+            loadLocalMaps();
         } finally {
             setIsLoadingCloud(false);
+        }
+    };
+
+    // 5 MAP LIMIT LOGIC
+    const activeMapsCount = maps.filter(m => !m.isDeleted).length;
+    const mapLimit = 5;
+    const isLimitReached = activeMapsCount >= mapLimit;
+
+    const handleCreateNewMap = () => {
+        if (isLimitReached) {
+            setShowUpgradeModal(true);
+            return;
+        }
+        onCreateMap();
+    };
+
+    const handleCreateTemplate = (key: string) => {
+        if (isLimitReached) {
+            setShowUpgradeModal(true);
+            return;
+        }
+
+        // @ts-ignore
+        const templateFn = TEMPLATES[key];
+        if (templateFn) {
+            const nodes = templateFn(0, 0);
+            onCreateMap({ nodes, projectName: `${key.replace(/_/g, ' ')} Template` });
         }
     };
 
@@ -87,7 +131,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
         if (!deleteConfirmation) return;
         const { mapId, isPermanent } = deleteConfirmation;
 
-        if (user) {
+        if (user && !isCloudOffline) {
             // Cloud Delete
             try {
                 await deleteMapFromCloud(mapId, isPermanent);
@@ -114,9 +158,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
 
     const handleRestore = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        if (user) {
+        if (user && !isCloudOffline) {
              // Cloud Restore (Update is_deleted = false)
-             await supabase.from('maps').update({ is_deleted: false }).eq('id', id);
+             await supabase.from('maps').update({ map_data: { isDeleted: false } }).eq('id', id); 
              loadCloudMaps();
         } else {
             const newMaps = maps.map(m => m.id === id ? { ...m, isDeleted: false } : m);
@@ -125,13 +169,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
         }
     };
 
-    const handleCreateTemplate = (key: string) => {
-        // @ts-ignore
-        const templateFn = TEMPLATES[key];
-        if (templateFn) {
-            const nodes = templateFn(0, 0);
-            onCreateMap({ nodes, projectName: `${key.replace(/_/g, ' ')} Template` });
-        }
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        window.location.reload(); 
     };
 
     const filteredMaps = maps.filter(m => m.name.toLowerCase().includes(search.toLowerCase()));
@@ -197,17 +237,54 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                 {/* Profile Section */}
                 <div className="px-4 py-4 border-b border-gray-100">
                      {user ? (
-                         <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
-                             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
-                                 {user.email?.[0].toUpperCase()}
-                             </div>
-                             {!isSidebarCollapsed && (
-                                 <div className="min-w-0">
-                                     <div className="text-xs font-bold text-gray-700 truncate">{user.email}</div>
-                                     <div className="text-[9px] text-green-600 font-bold flex items-center gap-1">
-                                         <div className="w-1.5 h-1.5 rounded-full bg-green-500" /> Online
-                                     </div>
+                         <div className={`flex flex-col gap-2 ${isSidebarCollapsed ? 'items-center' : ''}`}>
+                             <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
+                                 <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 text-white flex items-center justify-center font-bold text-xs shadow-md cursor-pointer" onClick={() => setIsSettingsOpen(true)}>
+                                     {user.email?.[0].toUpperCase()}
                                  </div>
+                                 {!isSidebarCollapsed && (
+                                     <div className="min-w-0">
+                                         <div className="text-xs font-bold text-gray-700 truncate">{user.email}</div>
+                                         {isCloudOffline ? (
+                                             <div className="flex flex-col items-start">
+                                                 <div className="text-[9px] text-orange-600 font-bold flex items-center gap-1">
+                                                     <Icon.CloudOff size={10} /> Offline Mode
+                                                 </div>
+                                                 <button 
+                                                    onClick={() => loadCloudMaps(true)}
+                                                    className="text-[9px] text-blue-600 hover:underline font-bold ml-3"
+                                                 >
+                                                    Retry Connection
+                                                 </button>
+                                             </div>
+                                         ) : (
+                                             <div className="text-[9px] text-green-600 font-bold flex items-center gap-1">
+                                                 <div className="w-1.5 h-1.5 rounded-full bg-green-500" /> Online
+                                             </div>
+                                         )}
+                                     </div>
+                                 )}
+                             </div>
+                             
+                             {!isSidebarCollapsed ? (
+                                <div className="flex gap-1 mt-2">
+                                    <button 
+                                        onClick={() => setIsSettingsOpen(true)}
+                                        className="flex-1 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 text-[10px] font-bold rounded border border-gray-200 flex items-center justify-center gap-1"
+                                    >
+                                        <Icon.Settings size={12} /> Settings
+                                    </button>
+                                    <button 
+                                        onClick={handleLogout}
+                                        className="flex-1 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-bold rounded border border-red-100 flex items-center justify-center gap-1"
+                                    >
+                                        <Icon.LogOut size={12} /> Logout
+                                    </button>
+                                </div>
+                             ) : (
+                                 <button onClick={handleLogout} className="text-red-400 hover:text-red-600 p-1" title="Logout">
+                                     <Icon.LogOut size={16} />
+                                 </button>
                              )}
                          </div>
                      ) : (
@@ -226,6 +303,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                     <SidebarButton id="SHARED" label="Shared with Me" icon={Icon.Share} />
                     <SidebarButton id="TRASH" label="Trash" icon={Icon.Trash} />
                 </div>
+                
+                {/* Map Limit Indicator (Professional SaaS Feature) */}
+                {!isSidebarCollapsed && activeTab === 'MY_MAPS' && (
+                    <div className="px-4 py-2 mb-2">
+                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                            <div className="flex justify-between text-[10px] font-bold text-gray-500 mb-1.5">
+                                <span>Free Plan Usage</span>
+                                <span className={isLimitReached ? 'text-red-500' : 'text-blue-500'}>{activeMapsCount} / {mapLimit}</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div 
+                                    className={`h-full rounded-full transition-all duration-500 ${isLimitReached ? 'bg-red-500' : 'bg-blue-500'}`} 
+                                    style={{ width: `${Math.min((activeMapsCount / mapLimit) * 100, 100)}%` }}
+                                />
+                            </div>
+                            {isLimitReached && (
+                                <div onClick={() => setShowUpgradeModal(true)} className="text-[9px] text-red-500 mt-2 font-bold cursor-pointer hover:underline text-center">
+                                    Limit Reached. Upgrade Now &rarr;
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 <div className="p-4 border-t border-gray-200">
                     <button onClick={onBackToLanding} className={`flex items-center gap-2 text-xs font-bold text-gray-400 hover:text-gray-600 transition-colors w-full px-2 py-2 rounded-lg hover:bg-gray-50 ${isSidebarCollapsed ? 'justify-center' : ''}`} title={isSidebarCollapsed ? "Back to Landing" : undefined}>
@@ -249,7 +349,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                             {activeTab === 'TRASH' && <><Icon.Trash className="text-red-500"/> Trash</>}
                         </h1>
                         <p className="text-gray-500 font-medium">
-                            {activeTab === 'MY_MAPS' && (user ? 'Cloud Workspace' : 'Local Workspace (Unsynced)')}
+                            {activeTab === 'MY_MAPS' && (isCloudOffline ? 'Local Workspace (Offline)' : (user ? 'Cloud Workspace (Synced)' : 'Local Workspace (Unsynced)'))}
                             {activeTab === 'TEMPLATES' && 'Start fast with pre-built structures'}
                             {activeTab === 'SHARED' && 'Collaborate on ideas with your team'}
                             {activeTab === 'TRASH' && 'Deleted maps (stored for 30 days)'}
@@ -271,10 +371,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                         )}
                         {(activeTab === 'MY_MAPS' || activeTab === 'TEMPLATES') && (
                             <button 
-                                onClick={() => onCreateMap()}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 active:scale-95 hover:-translate-y-0.5"
+                                onClick={handleCreateNewMap}
+                                className={`${isLimitReached ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 hover:-translate-y-0.5'} text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 active:scale-95`}
+                                title={isLimitReached ? "Map Limit Reached" : "Create New Map"}
                             >
-                                <Icon.Plus size={18} strokeWidth={3} /> New Map
+                                {isLimitReached ? <Icon.Lock size={18} /> : <Icon.Plus size={18} strokeWidth={3} />} 
+                                New Map
                             </button>
                         )}
                     </div>
@@ -293,13 +395,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                         {activeTab === 'MY_MAPS' && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
                                 <button 
-                                    onClick={() => onCreateMap()}
-                                    className="group relative aspect-[4/3] bg-white/50 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-4 hover:border-indigo-400 hover:bg-indigo-50 transition-all"
+                                    onClick={handleCreateNewMap}
+                                    className={`group relative aspect-[4/3] bg-white/50 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-4 transition-all
+                                        ${isLimitReached 
+                                            ? 'border-red-200 hover:bg-red-50 cursor-not-allowed' 
+                                            : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'
+                                        }
+                                    `}
                                 >
-                                    <div className="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform border border-gray-100">
-                                        <Icon.Plus className="text-indigo-500" size={32} />
+                                    <div className={`w-16 h-16 rounded-full shadow-sm flex items-center justify-center transition-transform border border-gray-100 ${isLimitReached ? '' : 'group-hover:scale-110 bg-white'}`}>
+                                        {isLimitReached ? <Icon.Lock className="text-red-400" size={32} /> : <Icon.Plus className="text-indigo-500" size={32} />}
                                     </div>
-                                    <span className="font-bold text-gray-500 group-hover:text-indigo-600">Create New Map</span>
+                                    <span className={`font-bold ${isLimitReached ? 'text-red-400' : 'text-gray-500 group-hover:text-indigo-600'}`}>
+                                        {isLimitReached ? "Upgrade to Create" : "Create New Map"}
+                                    </span>
                                 </button>
 
                                 {displayList.map(map => (
@@ -449,6 +558,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                     )}
                 </div>
             </div>
+
+            {/* Settings Modal */}
+            {user && (
+                <SettingsModal 
+                    isOpen={isSettingsOpen} 
+                    onClose={() => setIsSettingsOpen(false)} 
+                    userId={user.id}
+                    userEmail={user.email}
+                />
+            )}
+
+            {/* Upgrade Modal */}
+            <UpgradeModal 
+                isOpen={showUpgradeModal}
+                onClose={() => setShowUpgradeModal(false)}
+            />
 
             {/* Delete Confirmation Modal */}
             {deleteConfirmation && (

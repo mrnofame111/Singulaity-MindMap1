@@ -89,7 +89,10 @@ import {
   ChevronsRight,
   Globe,
   Mic,
-  PanelLeft
+  PanelLeft,
+  LogOut,
+  CloudOff,
+  AlertTriangle
 } from 'lucide-react';
 
 export const Icon = {
@@ -184,5 +187,8 @@ export const Icon = {
   ChevronsRight,
   Globe,
   Mic,
-  PanelLeft
+  PanelLeft,
+  LogOut,
+  CloudOff,
+  AlertTriangle
 };

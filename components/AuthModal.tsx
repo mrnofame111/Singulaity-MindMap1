@@ -7,14 +7,17 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  allowGuest?: boolean;
+  onGuest?: () => void;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess, allowGuest, onGuest }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showConfirmationMsg, setShowConfirmationMsg] = useState(false);
 
   if (!isOpen) return null;
 
@@ -30,7 +33,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           password,
         });
         if (error) throw error;
-        alert('Check your email for the confirmation link!');
+        setShowConfirmationMsg(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -46,6 +49,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       setLoading(false);
     }
   };
+
+  if (showConfirmationMsg) {
+      return (
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-white/20 p-8 relative text-center">
+                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Icon.Check size={32} strokeWidth={3} />
+                </div>
+                <h2 className="text-2xl font-display font-bold text-gray-900 mb-2">Account Created!</h2>
+                <p className="text-gray-600 mb-6 leading-relaxed">
+                    We've sent a confirmation link to <b>{email}</b>.<br/>
+                    Please check your email inbox (and spam folder) to activate your account.
+                </p>
+                <button 
+                    onClick={() => { setShowConfirmationMsg(false); onClose(); setIsSignUp(false); }}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all"
+                >
+                    Back to Login
+                </button>
+            </div>
+        </div>
+      );
+  }
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
@@ -110,6 +136,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             )}
           </button>
         </form>
+
+        {allowGuest && onGuest && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+                 <button 
+                    onClick={onGuest}
+                    className="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-600 font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+                 >
+                     Continue as Guest (Local Only)
+                 </button>
+            </div>
+        )}
 
         <div className="mt-6 text-center">
           <button

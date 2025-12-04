@@ -5,8 +5,10 @@ import { LandingPage } from './components/LandingPage';
 import { HomeScreen } from './components/HomeScreen';
 import { generateId } from './constants';
 import { AuthModal } from './components/AuthModal';
+import { OnboardingModal } from './components/OnboardingModal';
 import { supabase } from './lib/supabase';
-import { migrateLocalMapsToCloud, saveMapToCloud, createMapInCloud, loadMapFromCloud } from './services/cloudService';
+import { migrateLocalMapsToCloud, saveMapToCloud, createMapInCloud, loadMapFromCloud, CLOUD_UNAVAILABLE } from './services/cloudService';
+import { getProfile } from './services/profileService';
 
 type ViewState = 'LANDING' | 'HOME' | 'CANVAS';
 
@@ -18,6 +20,16 @@ const App: React.FC = () => {
   // Auth State
   const [user, setUser] = useState<any>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  
+  // Profile/Onboarding State
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  const checkProfile = async (userId: string) => {
+      const profile = await getProfile(userId);
+      if (!profile) {
+          setShowOnboarding(true);
+      }
+  };
 
   // Check Auth on Mount
   useEffect(() => {
@@ -26,6 +38,7 @@ const App: React.FC = () => {
       if (session?.user) {
           // Attempt migration on first load if logged in
           migrateLocalMapsToCloud(session.user.id);
+          checkProfile(session.user.id);
       }
     });
 
@@ -35,6 +48,9 @@ const App: React.FC = () => {
       setUser(session?.user ?? null);
       if (session?.user) {
           migrateLocalMapsToCloud(session.user.id);
+          checkProfile(session.user.id);
+      } else {
+          setShowOnboarding(false);
       }
     });
 
@@ -68,22 +84,24 @@ const App: React.FC = () => {
            }
         }
     } else {
-        // If logged in, default to HOME unless specific logic
+        // If logged in, default to HOME
         setCurrentView('HOME');
     }
   }, [user]);
 
   const handleLaunchApp = () => {
-    localStorage.setItem('singularity-visited', 'true');
-    setCurrentView('HOME');
+    // Instead of going directly to HOME, we trigger Auth
+    setIsAuthModalOpen(true);
+  };
+
+  const handleGuestAccess = () => {
+      localStorage.setItem('singularity-visited', 'true');
+      setCurrentView('HOME');
+      setIsAuthModalOpen(false);
   };
 
   const handleOpenMap = async (mapId: string) => {
     if (user) {
-        // If logged in, we might need to fetch data into local storage or state
-        // For simplicity in this version, we load into localStorage to keep Canvas component compatible,
-        // or we could pass initialData prop to Canvas.
-        // Let's load into localStorage as a cache mechanism.
         try {
             const content = await loadMapFromCloud(mapId);
             if (content) {
@@ -91,7 +109,6 @@ const App: React.FC = () => {
             }
         } catch (e) {
             console.error("Failed to load map from cloud", e);
-            // Fallback to local if it exists?
         }
     }
     setActiveMapId(mapId);
@@ -116,21 +133,23 @@ const App: React.FC = () => {
           try {
               // Create in cloud
               const newMap = await createMapInCloud(mapData);
-              // Note: newMap.id from Supabase might be different if we used auto-gen UUID. 
-              // For this hybrid approach, let's rely on the ID we generate if using upsert, 
-              // OR use the returned ID. 
-              // Simplest: Use the ID returned by Supabase if insert.
-              // But createMapInCloud in service currently returns data.
               
               // Update local cache
               localStorage.setItem(`singularity-map-${newMap.id}`, JSON.stringify(mapData));
               setActiveMapId(newMap.id);
-          } catch (e) {
-              console.error("Failed to create map in cloud", e);
-              alert("Failed to create map online. Saving locally.");
-              // Fallback local
-              saveLocal(newId, name, mapData);
-              setActiveMapId(newId);
+          } catch (e: any) {
+              if (e.message === CLOUD_UNAVAILABLE) {
+                  console.warn("Cloud unavailable (tables missing). Creating locally.");
+                  // Fallback local silent
+                  saveLocal(newId, name, mapData);
+                  setActiveMapId(newId);
+              } else {
+                  console.error("Failed to create map in cloud", e);
+                  alert("Failed to create map online. Saving locally.");
+                  // Fallback local with alert
+                  saveLocal(newId, name, mapData);
+                  setActiveMapId(newId);
+              }
           }
       } else {
           saveLocal(newId, name, mapData);
@@ -151,11 +170,7 @@ const App: React.FC = () => {
   const handleBackToHome = () => {
       setActiveMapId(null);
       setCurrentView('HOME');
-      // Trigger a save to cloud if dirty? 
-      // Canvas component has auto-save to localStorage. 
-      // We should hook into that or trigger sync on exit.
-      // For now, rely on the Canvas auto-save which writes to localStorage.
-      // We need a mechanism to sync localStorage -> Cloud on exit.
+      
       if (user && activeMapId) {
           const localData = localStorage.getItem(`singularity-map-${activeMapId}`);
           if (localData) {
@@ -205,10 +220,21 @@ const App: React.FC = () => {
         isOpen={isAuthModalOpen} 
         onClose={() => setIsAuthModalOpen(false)}
         onSuccess={() => {
-            // Migration is handled by useEffect on user change
             setCurrentView('HOME');
         }}
+        allowGuest={currentView === 'LANDING'}
+        onGuest={handleGuestAccess}
       />
+
+      {/* Onboarding Modal */}
+      {user && showOnboarding && (
+          <OnboardingModal 
+              isOpen={true}
+              userId={user.id}
+              userEmail={user.email || ''}
+              onComplete={() => setShowOnboarding(false)}
+          />
+      )}
     </div>
   );
 };
