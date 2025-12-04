@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from './Icons';
 import { ToolMode, NodeShape, EdgeOptions } from '../types';
 
@@ -60,6 +60,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuType>(null);
   const [tableDims, setTableDims] = useState({ rows: 3, cols: 3 });
   const [layoutDir, setLayoutDir] = useState<'LR' | 'RL'>('LR');
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  useEffect(() => {
+    setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  }, []);
 
   const toggleSubMenu = (menu: SubMenuType) => {
     setActiveSubMenu(prev => prev === menu ? null : menu);
@@ -103,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       return (
           <div 
-            draggable 
+            draggable={!isTouchDevice}
             onDragStart={handleDragStart}
             onClick={handleClick}
             className={isSelectionMode ? "ring-2 ring-indigo-400 ring-offset-1 rounded-xl cursor-copy animate-pulse" : ""}
