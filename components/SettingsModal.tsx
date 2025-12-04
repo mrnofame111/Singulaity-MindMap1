@@ -33,9 +33,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
   const [name, setName] = useState('');
   const [birthdate, setBirthdate] = useState('');
 
+  // Billing State (Local Mock for Zero-Cost Plan)
+  const [aiUsage, setAiUsage] = useState(0);
+
   useEffect(() => {
       if (isOpen && userId) {
           loadProfile();
+      }
+      if (isOpen) {
+          const usage = parseInt(localStorage.getItem('singularity_ai_usage') || '0');
+          setAiUsage(usage);
       }
   }, [isOpen, userId]);
 
@@ -182,18 +189,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, u
                 <div className="space-y-6">
                     <h3 className="text-2xl font-bold text-gray-800">Subscription</h3>
                     
-                    <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-6 flex items-center justify-between">
-                        <div>
-                            <h4 className="text-lg font-bold text-indigo-900">Free Tier</h4>
-                            <p className="text-sm text-indigo-600">Basic features. Max 5 maps.</p>
+                    <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h4 className="text-lg font-bold text-indigo-900">Free Plan</h4>
+                                <p className="text-sm text-indigo-600">Basic AI & Mapping Features</p>
+                            </div>
+                            <div className="px-4 py-1 bg-indigo-200 text-indigo-800 rounded-full text-xs font-bold uppercase">Active</div>
                         </div>
-                        <div className="px-4 py-1 bg-indigo-200 text-indigo-800 rounded-full text-xs font-bold uppercase">Active</div>
+
+                        {/* Usage Meter */}
+                        <div className="space-y-2">
+                             <div className="flex justify-between text-xs font-bold text-indigo-800">
+                                 <span>AI Generative Credits</span>
+                                 <span className={aiUsage >= 3 ? 'text-red-500' : ''}>{aiUsage} / 3 Used</span>
+                             </div>
+                             <div className="w-full h-2 bg-white rounded-full overflow-hidden border border-indigo-200">
+                                 <div 
+                                    className={`h-full rounded-full transition-all duration-500 ${aiUsage >= 3 ? 'bg-red-500' : 'bg-indigo-500'}`} 
+                                    style={{ width: `${Math.min((aiUsage / 3) * 100, 100)}%` }}
+                                 />
+                             </div>
+                             <p className="text-[10px] text-indigo-600 leading-tight">
+                                 Upgrade to Pro to unlock unlimited AI generation, 8K exports, and collaboration tools.
+                             </p>
+                        </div>
                     </div>
 
                     <div className="border-t border-gray-100 pt-6">
                         <p className="text-gray-500 text-sm mb-4">Upgrade to Pro for unlimited maps, AI power, and 8K exports.</p>
-                        <button className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5">
-                            Upgrade to Pro - $5/mo
+                        <button className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 flex items-center justify-center gap-2">
+                            <Icon.Zap size={20} /> Upgrade to Pro - $5/mo
                         </button>
                     </div>
                 </div>

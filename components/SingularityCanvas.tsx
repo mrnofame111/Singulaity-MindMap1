@@ -27,6 +27,7 @@ import { OutlinePanel } from './OutlinePanel';
 import { CreationBar } from './CreationBar';
 import { CustomToolbar, CustomTool } from './CustomToolbar';
 import { IntegrationsModal } from './IntegrationsModal';
+import { UpgradeModal } from './UpgradeModal';
 import { Icon } from './Icons';
 import * as htmlToImage from 'html-to-image';
 
@@ -111,9 +112,10 @@ interface CanvasProps {
   isGenerating: boolean;
   setIsGenerating: (isGenerating: boolean) => void;
   triggerAiPrompt: any;
+  user: any;
 }
 
-const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating, setIsGenerating }) => {
+const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating, setIsGenerating, user }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragFrameRef = useRef<number>(0);
@@ -243,12 +245,27 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   
   // Drag-to-link State from ShapeDock
   const [linkStartScreenPos, setLinkStartScreenPos] = useState<{x: number, y: number} | null>(null);
+  
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   // VOICE COMMAND STATE
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   const currentTheme = APP_THEMES[canvasSettings.theme] || APP_THEMES['default'];
+  
+  // --- MONETIZATION CHECK ---
+  // Assuming all users are "Free" for now since there's no Pro flag in DB yet.
+  // In a real app, we would check `user.plan === 'pro'`.
+  const isPro = false;
+
+  const handleProAction = () => {
+      if (!isPro) {
+          setShowUpgradeModal(true);
+          return false;
+      }
+      return true;
+  };
   
   useEffect(() => {
     if (isVoiceActive) {
@@ -842,7 +859,13 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleNextResult = () => { if (searchResults.length === 0) return; const nextIndex = (currentResultIndex + 1) % searchResults.length; setCurrentResultIndex(nextIndex); centerOnNode(searchResults[nextIndex]); };
   const handlePrevResult = () => { if (searchResults.length === 0) return; const prevIndex = (currentResultIndex - 1 + searchResults.length) % searchResults.length; setCurrentResultIndex(prevIndex); centerOnNode(searchResults[prevIndex]); };
   const handleVideoExport = async () => { try { const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false }); const mimeType = 'video/webm;codecs=vp9'; const mediaRecorder = new MediaRecorder(stream, { mimeType }); const chunks: Blob[] = []; mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); }; mediaRecorder.onstop = () => { const blob = new Blob(chunks, { type: mimeType }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${projectName.replace(/\s+/g, '_')}_recording.webm`; a.click(); URL.revokeObjectURL(url); stream.getTracks().forEach(track => track.stop()); }; mediaRecorder.start(); stream.getVideoTracks()[0].onended = () => { if (mediaRecorder.state !== 'inactive') { mediaRecorder.stop(); } }; } catch (err) { console.error("Error starting screen recording:", err); alert("Screen recording cancelled or failed."); } };
-  const handleExport = async (type: 'JSON' | 'MD' | 'PNG' | 'JPEG' | 'TXT' | 'SVG' | 'PDF' | 'DOC' | 'EXCEL' | 'OPML' | 'VIDEO' | 'HTML') => { if (type === 'JSON') { const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ nodes, edgeData, drawings, viewport, projectName }, null, 2)); const downloadAnchorNode = document.createElement('a'); downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", `${projectName.replace(/\s+/g, '_')}_backup.json`); document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove(); } else if (type === 'MD') { exportToDoc(nodes, projectName); } else if (type === 'TXT') { exportToOPML(nodes, projectName); } else if (type === 'PNG' || type === 'JPEG' || type === 'SVG') { setExportFormat(type); setIsExportModalOpen(true); } else if (type === 'HTML') { generateInteractiveHTML(nodes, edgeData, projectName, currentTheme); } else if (type === 'DOC') { exportToDoc(nodes, projectName); } else if (type === 'PDF') { printToPDF(projectName); } else if (type === 'EXCEL') { exportToCSV(nodes, projectName); } else if (type === 'OPML') { exportToOPML(nodes, projectName); } else if (type === 'VIDEO') { handleVideoExport(); } };
+  
+  const handleExport = async (type: 'JSON' | 'MD' | 'PNG' | 'JPEG' | 'TXT' | 'SVG' | 'PDF' | 'DOC' | 'EXCEL' | 'OPML' | 'VIDEO' | 'HTML') => { 
+      if (!handleProAction()) return; // Gate access
+      
+      if (type === 'JSON') { const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ nodes, edgeData, drawings, viewport, projectName }, null, 2)); const downloadAnchorNode = document.createElement('a'); downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", `${projectName.replace(/\s+/g, '_')}_backup.json`); document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove(); } else if (type === 'MD') { exportToDoc(nodes, projectName); } else if (type === 'TXT') { exportToOPML(nodes, projectName); } else if (type === 'PNG' || type === 'JPEG' || type === 'SVG') { setExportFormat(type); setIsExportModalOpen(true); } else if (type === 'HTML') { generateInteractiveHTML(nodes, edgeData, projectName, currentTheme); } else if (type === 'DOC') { exportToDoc(nodes, projectName); } else if (type === 'PDF') { printToPDF(projectName); } else if (type === 'EXCEL') { exportToCSV(nodes, projectName); } else if (type === 'OPML') { exportToOPML(nodes, projectName); } else if (type === 'VIDEO') { handleVideoExport(); } 
+  };
+  
   const handleMagicStyle = async (nodeId: string) => { const node = getNodeById(nodeId); if (!node) return; setIsGenerating(true); const result = await analyzeNodeContent(node.label); if (result) { let newNodeType = node.type; if (result.type === 'TASK') newNodeType = NodeType.TASK; if (result.type === 'CODE') newNodeType = NodeType.CODE; updateState(nodes.map(n => n.id === nodeId ? { ...n, type: newNodeType, color: result.color, shape: result.shape as NodeShape } : n)); } setIsGenerating(false); };
   const handleLayoutAction = (type: LayoutType) => { let processedNodes = [...nodes]; if (type === 'FLOWCHART') { processedNodes = processedNodes.map(n => ({ ...n, originalShape: n.originalShape || n.shape, shape: n.label.includes('?') || n.type === NodeType.MAIN ? 'diamond' : 'rectangle' })); } else { processedNodes = processedNodes.map(n => ({ ...n, shape: n.originalShape || n.shape, originalShape: undefined })); } let layoutTargetNodes = processedNodes; let isPartialLayout = selectedNodeIds.size > 0; if (isPartialLayout) { const selected = processedNodes.filter(n => selectedNodeIds.has(n.id)); if (selected.length > 0) layoutTargetNodes = selected; else isPartialLayout = false; } const laidOutNodes = recalculateLayout(layoutTargetNodes, type); if (isPartialLayout) { const centroidX = layoutTargetNodes.reduce((sum, n) => sum + n.position.x, 0) / layoutTargetNodes.length; const centroidY = layoutTargetNodes.reduce((sum, n) => sum + n.position.y, 0) / layoutTargetNodes.length; const newCentroidX = laidOutNodes.reduce((sum, n) => sum + n.position.x, 0) / laidOutNodes.length; const newCentroidY = laidOutNodes.reduce((sum, n) => sum + n.position.y, 0) / laidOutNodes.length; const offsetX = centroidX - newCentroidX; const offsetY = centroidY - newCentroidY; const mergedNodes = processedNodes.map(n => { const updated = laidOutNodes.find(sub => sub.id === n.id); if (updated) { return { ...updated, position: { x: updated.position.x + offsetX, y: updated.position.y + offsetY } }; } return n; }); updateState(mergedNodes); } else { updateState(laidOutNodes); } };
 
@@ -1111,7 +1134,9 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
         projectName={projectName} 
         setProjectName={setProjectName} 
         activeToolName={mode} 
-        onShare={() => alert("Share link copied to clipboard!")} 
+        onShare={() => {
+            if (handleProAction()) alert("Share link copied to clipboard!");
+        }} 
         onSettings={() => setIsRightPanelOpen(!isRightPanelOpen)} 
         onAction={handleAction} 
         isSettingsOpen={isRightPanelOpen} 
@@ -1383,7 +1408,12 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       <ShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
       <ChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} nodes={nodes} onAction={handleAiActions} />
       <MediaModal isOpen={isMediaModalOpen} onClose={() => setIsMediaModalOpen(false)} onImageAdd={(url, label) => { const centerPos = { x: (window.innerWidth / 2 - viewport.x) / viewport.zoom, y: (window.innerHeight / 2 - viewport.y) / viewport.zoom }; handleAddNode(undefined, false, NodeType.MEDIA, undefined, label, undefined, { imageUrl: url }, centerPos); }} />
-      <NewMapModal isOpen={isNewMapModalOpen} onClose={() => setIsNewMapModalOpen(false)} onCreate={handleCreateNewMap} />
+      <NewMapModal 
+        isOpen={isNewMapModalOpen} 
+        onClose={() => setIsNewMapModalOpen(false)} 
+        onCreate={handleCreateNewMap} 
+        onAiLimitReached={() => setShowUpgradeModal(true)}
+      />
       <AiOptionsModal isOpen={isAiOptionsOpen} onClose={() => setIsAiOptionsOpen(false)} onGenerate={handleExpandNode} nodeLabel={aiTargetNodeId ? nodes.find(n => n.id === aiTargetNodeId)?.label || '' : ''} onLabelChange={(newLabel) => { if (aiTargetNodeId) handleLabelChange(aiTargetNodeId, newLabel); }} />
       {aiTargetNodeId && (<DreamModal isOpen={isDreamModalOpen} onClose={() => setIsDreamModalOpen(false)} nodeLabel={nodes.find(n => n.id === aiTargetNodeId)?.label || ''} onConfirm={handleDreamNode} />)}
       {showShapeDock && shapeDockTarget && (<ShapeDock nodePosition={activeNodeScreenPosition} zoom={viewport.zoom} nodeType={shapeDockTarget.type} onAction={handleContextMenuAction} initialColor={shapeDockTarget.color} />)}
@@ -1398,6 +1428,11 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           elementId="canvas-content"
       />
       <IntegrationsModal isOpen={false} onClose={() => {}} /> 
+      
+      <UpgradeModal 
+         isOpen={showUpgradeModal} 
+         onClose={() => setShowUpgradeModal(false)} 
+      />
     </div>
   );
 };

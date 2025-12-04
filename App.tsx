@@ -203,6 +203,7 @@ const App: React.FC = () => {
           isGenerating={isGenerating}
           setIsGenerating={setIsGenerating}
           triggerAiPrompt={null}
+          user={user}
         />
       )}
       

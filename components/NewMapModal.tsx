@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icons';
 import { parseFile } from '../services/fileParsingService';
 import { generateMindMapData, generateMindMapFromContent } from '../services/geminiService';
@@ -10,9 +10,10 @@ interface NewMapModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (data: any) => void;
+  onAiLimitReached?: () => void;
 }
 
-export const NewMapModal: React.FC<NewMapModalProps> = ({ isOpen, onClose, onCreate }) => {
+export const NewMapModal: React.FC<NewMapModalProps> = ({ isOpen, onClose, onCreate, onAiLimitReached }) => {
   const [activeTab, setActiveTab] = useState<'TOPIC' | 'DOCUMENT'>('TOPIC');
   
   // Topic State
@@ -23,30 +24,22 @@ export const NewMapModal: React.FC<NewMapModalProps> = ({ isOpen, onClose, onCre
   const [docText, setDocText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Usage State
+  const [aiUsageCount, setAiUsageCount] = useState(0);
+
+  useEffect(() => {
+      if (isOpen) {
+          const usage = parseInt(localStorage.getItem('singularity_ai_usage') || '0');
+          setAiUsageCount(usage);
+      }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleCreateFromTopic = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (goal.trim()) {
-       // This triggers the legacy/standard AI flow in App.tsx if we pass just the string?
-       // Actually, HomeScreen expects onCreateMap(data?), and App.tsx handles it.
-       // App.tsx: if data.nodes exists, it uses it. If not, it checks data.projectName?
-       // Wait, App.tsx's handleCreateMap handles generation internally? 
-       // NO. App.tsx expects `initialData`. If `initialData` has nodes, it uses them.
-       // So we must GENERATE here if we want to pass nodes, OR pass a flag to App.tsx.
-       // Looking at App.tsx: 
-       // `const handleCreateNewMap = async (goal: string) => ...` is passed to NewMapModal as `onCreate`.
-       // Ah, in SingularityCanvas.tsx: `handleCreateNewMap` does the generation.
-       // BUT in HomeScreen/App structure, `onCreateMap` usually takes `initialData`.
-       // Let's align with how `SingularityCanvas` uses it or how `App.tsx` uses it.
-       
-       // If I look at `SingularityCanvas.tsx`, it has `handleCreateNewMap` which calls `generateMindMapData`.
-       // `App.tsx` has `handleCreateMap` which takes `initialData`.
-       
-       // Ideally, I should perform the generation HERE in the modal (or a service) and pass the RESULT to `onCreate`.
-       // This keeps the logic self-contained.
-       
        setIsProcessing(true);
        try {
            const aiData = await generateMindMapData(goal);
@@ -76,6 +69,16 @@ export const NewMapModal: React.FC<NewMapModalProps> = ({ isOpen, onClose, onCre
 
   const handleCreateFromDocument = async () => {
       if (!file && !docText.trim()) return;
+
+      // CHECK USAGE LIMIT (Strict 3)
+      if (aiUsageCount >= 3) {
+          if (onAiLimitReached) {
+              onAiLimitReached();
+          } else {
+              alert("Free Plan Limit Reached (3/3 AI Generations). Please upgrade.");
+          }
+          return;
+      }
       
       setIsProcessing(true);
       try {
@@ -98,6 +101,11 @@ export const NewMapModal: React.FC<NewMapModalProps> = ({ isOpen, onClose, onCre
               const layoutNodes = calculateLayout(aiData, center.x, center.y);
               const organicNodes = layoutOrganic(layoutNodes);
               
+              // INCREMENT USAGE ONLY ON SUCCESS
+              const newCount = aiUsageCount + 1;
+              localStorage.setItem('singularity_ai_usage', newCount.toString());
+              setAiUsageCount(newCount);
+
               onCreate({
                   nodes: organicNodes,
                   projectName: file ? file.name.split('.')[0] : "Document Analysis",
@@ -215,6 +223,17 @@ export const NewMapModal: React.FC<NewMapModalProps> = ({ isOpen, onClose, onCre
                 </form>
             ) : (
                 <div className="space-y-6">
+                    {/* Usage Badge */}
+                    <div className="flex items-center justify-between bg-purple-50 p-3 rounded-xl border border-purple-100">
+                         <div className="flex items-center gap-2">
+                             <Icon.Zap size={16} className="text-purple-600" />
+                             <span className="text-xs font-bold text-purple-800">Free AI Credits</span>
+                         </div>
+                         <span className={`text-xs font-bold px-2 py-1 rounded bg-white border ${aiUsageCount >= 3 ? 'text-red-500 border-red-200' : 'text-purple-600 border-purple-200'}`}>
+                             {3 - aiUsageCount} / 3 Left
+                         </span>
+                    </div>
+
                     {/* File Upload */}
                     <div 
                         className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-300 transition-colors group"
