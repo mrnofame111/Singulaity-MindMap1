@@ -1,5 +1,6 @@
 
 
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIMindMapNode, AIGenerationOptions, SingularityNode, AIAction, AIGraphResult, NodeType } from "../types";
 
@@ -80,6 +81,88 @@ export const generateMindMapData = async (topic: string): Promise<AIMindMapNode 
     console.error("Gemini API Error:", error);
     return null;
   }
+};
+
+/**
+ * RAG: Generates a mind map from a large block of text content (e.g. Document/PDF)
+ */
+export const generateMindMapFromContent = async (content: string): Promise<AIMindMapNode | null> => {
+    if (!apiKey) {
+        console.error("API_KEY is missing");
+        return null;
+    }
+
+    // Truncate if absolutely massive, though Flash handles large contexts well.
+    // ~500k characters is a safe conservative limit for text-only input without token counting logic
+    const safeContent = content.slice(0, 500000); 
+
+    const prompt = `
+      Analyze the following document content and structure it into a Mind Map.
+      
+      The Mind Map should summarize the key concepts, arguments, and details found in the text.
+      
+      CONTENT:
+      """
+      ${safeContent}
+      """
+      
+      Rules:
+      1. Identify the Main Topic for the Root Node.
+      2. Create high-level branches for major sections/themes.
+      3. Break down into detailed sub-nodes.
+      4. Use concise labels for nodes (max 6 words).
+      5. Return purely JSON data matching the schema.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        label: { type: Type.STRING },
+                        children: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    label: { type: Type.STRING },
+                                    children: {
+                                        type: Type.ARRAY,
+                                        items: {
+                                            type: Type.OBJECT,
+                                            properties: {
+                                                label: { type: Type.STRING },
+                                                children: {
+                                                    type: Type.ARRAY,
+                                                    items: {
+                                                        type: Type.OBJECT,
+                                                        properties: {
+                                                            label: { type: Type.STRING }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const text = response.text;
+        if (!text) return null;
+        return JSON.parse(text) as AIMindMapNode;
+    } catch (e) {
+        console.error("Gemini RAG Error:", e);
+        return null;
+    }
 };
 
 /**
