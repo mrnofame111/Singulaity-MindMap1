@@ -148,6 +148,7 @@ export interface CanvasSettings {
   showGrid: boolean;
   zoomSensitivity: number; // 0.1 to 3.0
   zoomInertia: boolean;
+  autoEditOnCreate?: boolean;
 }
 
 export interface ChatMessage {

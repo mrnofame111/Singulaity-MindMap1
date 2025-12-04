@@ -387,10 +387,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
           
           {activeTab === 'SETTINGS' && (
             <>
-              {/* Navigation Settings Section */}
+              {/* Navigation & Interaction Settings */}
               <div>
                   <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <Icon.Navigation size={12}/> Navigation & View
+                      <Icon.Settings size={12}/> General Preferences
                   </h3>
                   <div className="space-y-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
                       {/* Zoom Sensitivity */}
@@ -424,6 +424,24 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                       </div>
                       <p className="text-[9px] text-gray-400 leading-tight pt-1">
                           Enables smooth momentum when zooming in or out.
+                      </p>
+
+                      <div className="h-px bg-gray-200 my-2" />
+
+                      {/* Auto Edit */}
+                       <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                              <Icon.Type size={14} className="text-gray-500"/>
+                              <span className="text-xs font-bold text-gray-600">Auto-Edit on Create</span>
+                          </div>
+                          <ToggleSwitch
+                              label=""
+                              checked={canvasSettings.autoEditOnCreate ?? true}
+                              onChange={() => setCanvasSettings({...canvasSettings, autoEditOnCreate: !canvasSettings.autoEditOnCreate})}
+                          />
+                      </div>
+                      <p className="text-[9px] text-gray-400 leading-tight pt-1">
+                          Immediately focus text input when creating a new node.
                       </p>
                   </div>
               </div>
@@ -633,7 +651,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                         
                         <button 
                             onClick={handleGlobalReplace}
-                            className={`w-full py-2.5 text-xs font-bold rounded-lg transition-colors shadow-md active:scale-95 ${replaceStatus === 'success' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                            className={`w-full py-2.5 text-xs font-bold rounded-lg transition-colors shadow-md active:scale-95 ${replaceStatus === 'success' ? 'bg-green-50 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
                         >
                             {replaceStatus === 'success' ? 'Matches Replaced!' : 'Run Replace'}
                         </button>
@@ -683,9 +701,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                 <div className="space-y-1">
                                     <span className="text-[9px] font-bold text-gray-400 uppercase">Default Routing</span>
                                     <div className="grid grid-cols-3 gap-1">
-                                        <button onClick={() => setDefaultEdgeOptions({...defaultEdgeOptions, routingType: 'straight'})} className={`py-2 text-[10px] font-bold rounded border transition-all ${defaultEdgeOptions.routingType === 'straight' ? 'bg-green-500 text-white border-green-600 shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>STR</button>
-                                        <button onClick={() => setDefaultEdgeOptions({...defaultEdgeOptions, routingType: 'curved'})} className={`py-2 text-[10px] font-bold rounded border transition-all ${defaultEdgeOptions.routingType === 'curved' ? 'bg-green-500 text-white border-green-600 shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>CRV</button>
-                                        <button onClick={() => setDefaultEdgeOptions({...defaultEdgeOptions, routingType: 'orthogonal'})} className={`py-2 text-[10px] font-bold rounded border transition-all ${defaultEdgeOptions.routingType === 'orthogonal' ? 'bg-green-500 text-white border-green-600 shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>90°</button>
+                                        <button onClick={() => setDefaultEdgeOptions({...defaultEdgeOptions, routingType: 'straight'})} className={`py-2 text-[10px] font-bold rounded border transition-all ${defaultEdgeOptions.routingType === 'straight' ? 'bg-green-50 text-white border-green-600 shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>STR</button>
+                                        <button onClick={() => setDefaultEdgeOptions({...defaultEdgeOptions, routingType: 'curved'})} className={`py-2 text-[10px] font-bold rounded border transition-all ${defaultEdgeOptions.routingType === 'curved' ? 'bg-green-50 text-white border-green-600 shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>CRV</button>
+                                        <button onClick={() => setDefaultEdgeOptions({...defaultEdgeOptions, routingType: 'orthogonal'})} className={`py-2 text-[10px] font-bold rounded border transition-all ${defaultEdgeOptions.routingType === 'orthogonal' ? 'bg-green-50 text-white border-green-600 shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>90°</button>
                                     </div>
                                 </div>
 
