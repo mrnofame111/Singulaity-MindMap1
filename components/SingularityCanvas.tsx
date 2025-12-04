@@ -132,6 +132,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const touchStartPosRef = useRef<{x: number, y: number} | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPinchingRef = useRef<boolean>(false);
+  const touchStartNodeIdRef = useRef<string | null>(null); // Track initial node to avoid re-toggle during paint
   
   // Advanced Gesture Refs
   const lastTouchEndTimeRef = useRef<number>(0);
@@ -532,6 +533,9 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               isPotentialAreaSelectionRef.current = true;
               if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
           } else if (hitNode) {
+              // Record initial touch node to prevent re-toggle on drag-paint
+              touchStartNodeIdRef.current = hitNode.id;
+
               // If CONNECT mode is active on mobile, start dragging connection immediately
               if (mode === ToolMode.CONNECT) {
                    setAltLinkSourceId(hitNode.id);
@@ -541,19 +545,29 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                    return; 
               }
 
-              if (!isMultiSelectMode) {
-                  let newSelection = new Set<string>();
-                  if (selectedNodeIds.has(hitNode.id)) {
-                      newSelection = new Set(selectedNodeIds);
-                  } else {
-                      newSelection = new Set([hitNode.id]);
-                      setSelectedNodeIds(newSelection);
+              if (isMultiSelectMode) {
+                  // Toggle immediately on touch in multi-select mode
+                  const newSet = new Set(selectedNodeIds);
+                  if (newSet.has(hitNode.id)) newSet.delete(hitNode.id);
+                  else newSet.add(hitNode.id);
+                  setSelectedNodeIds(newSet);
+                  // We don't set dragNodeIds here so panning logic in touchMove is skipped (or treated as paint)
+              } else {
+                  if (!isMultiSelectMode) {
+                      let newSelection = new Set<string>();
+                      if (selectedNodeIds.has(hitNode.id)) {
+                          newSelection = new Set(selectedNodeIds);
+                      } else {
+                          newSelection = new Set([hitNode.id]);
+                          setSelectedNodeIds(newSelection);
+                      }
+                      setDragNodeIds(newSelection);
+                      hasDraggedRef.current = false;
                   }
-                  setDragNodeIds(newSelection);
-                  hasDraggedRef.current = false;
               }
               if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
           } else {
+              touchStartNodeIdRef.current = null;
               longPressTimerRef.current = setTimeout(() => {
                   setActiveContextNodeId(null);
                   setContextMenuAnchor({ left: touch.clientX, top: touch.clientY, right: touch.clientX, bottom: touch.clientY, width: 0, height: 0 });
@@ -590,6 +604,28 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               return; // Don't pan or drag nodes while linking
           }
           // ----------------------------------------
+          
+          // *** MULTI-SELECT PAINT LOGIC ***
+          if (isMultiSelectMode) {
+              e.preventDefault(); // Prevent scrolling
+              const hitEl = document.elementFromPoint(touch.clientX, touch.clientY);
+              const nodeEl = hitEl?.closest('[data-node-id]');
+              const hitNodeId = nodeEl?.getAttribute('data-node-id');
+              
+              // If we moved to a NEW node (different from start), select it (paint additive)
+              if (hitNodeId && hitNodeId !== touchStartNodeIdRef.current) {
+                  if (!selectedNodeIds.has(hitNodeId)) {
+                      setSelectedNodeIds(prev => {
+                          const next = new Set(prev);
+                          next.add(hitNodeId);
+                          return next;
+                      });
+                      if (navigator.vibrate) navigator.vibrate(5);
+                  }
+              }
+              return;
+          }
+          // ********************************
 
           const last = lastTouchPosRef.current;
           if (!last) return;
@@ -696,6 +732,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleTouchEnd = (e: React.TouchEvent) => {
       lastTouchEndTimeRef.current = Date.now();
       isPotentialAreaSelectionRef.current = false;
+      touchStartNodeIdRef.current = null; // Reset start node
 
       if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
 
@@ -749,7 +786,8 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           const dx = Math.abs(lastTouchPosRef.current.x - touchStartPosRef.current.x);
           const dy = Math.abs(lastTouchPosRef.current.y - touchStartPosRef.current.y);
           
-          if (dx < 10 && dy < 10) {
+          // Increased tolerance for taps to 15px
+          if (dx < 15 && dy < 15) {
               const hitEl = document.elementFromPoint(lastTouchPosRef.current.x, lastTouchPosRef.current.y);
               const nodeEl = hitEl?.closest('[data-node-id]');
               const hitNodeId = nodeEl?.getAttribute('data-node-id');
@@ -757,10 +795,8 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               
               if (hitNode) {
                   if (isMultiSelectMode) {
-                      const newSet = new Set(selectedNodeIds);
-                      if (newSet.has(hitNode.id)) newSet.delete(hitNode.id);
-                      else newSet.add(hitNode.id);
-                      setSelectedNodeIds(newSet);
+                      // Do nothing here as selection was handled in handleTouchStart for responsiveness
+                      return;
                   } else {
                       // In regular mode, simulate click for selection
                       // Note: if mode was CONNECT, we handled it in TouchStart, so this won't trigger unless mode changed
