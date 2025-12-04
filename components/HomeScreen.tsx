@@ -171,7 +171,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
-        window.location.reload(); 
+        // No reload needed, App.tsx handles state change
     };
 
     const filteredMaps = maps.filter(m => m.name.toLowerCase().includes(search.toLowerCase()));
@@ -210,7 +210,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
             
             {/* Sidebar */}
             <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-white border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm transition-all duration-300 ease-in-out`}>
-                <div className={`p-6 border-b border-gray-100 flex items-center ${isSidebarCollapsed ? 'justify-center flex-col gap-4' : 'justify-between'}`}>
+                <div className={`p-6 border-b border-gray-100 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
                     {isSidebarCollapsed ? (
                         <div className="mb-2">
                              <Icon.Brain size={28} className="text-indigo-600" />
@@ -224,14 +224,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-10 truncate">Workspace</span>
                         </div>
                     )}
-
-                    <button 
-                        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                        className={`text-gray-400 hover:text-indigo-600 transition-colors p-1.5 rounded-lg hover:bg-gray-50`}
-                        title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-                    >
-                        <Icon.PanelLeft size={20} className={isSidebarCollapsed ? "rotate-180" : ""} />
-                    </button>
                 </div>
 
                 {/* Profile Section */}
@@ -342,13 +334,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
 
                 <div className="p-8 pb-4 flex items-center justify-between relative z-10 shrink-0">
                     <div>
-                        <h1 className="text-3xl font-display font-black text-gray-800 mb-2 flex items-center gap-3">
-                            {activeTab === 'MY_MAPS' && <><Icon.Layout className="text-blue-500"/> My Maps</>}
-                            {activeTab === 'TEMPLATES' && <><Icon.Sparkles className="text-purple-500"/> Templates</>}
-                            {activeTab === 'SHARED' && <><Icon.Share className="text-green-500"/> Shared with Me</>}
-                            {activeTab === 'TRASH' && <><Icon.Trash className="text-red-500"/> Trash</>}
-                        </h1>
-                        <p className="text-gray-500 font-medium">
+                        <div className="flex items-center gap-4 mb-2">
+                            <button 
+                                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                                className="p-2 bg-white border border-gray-200 rounded-xl text-gray-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm hover:shadow-md active:scale-95"
+                                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                            >
+                                <Icon.PanelLeft size={20} />
+                            </button>
+                            <h1 className="text-3xl font-display font-black text-gray-800 flex items-center gap-3">
+                                {activeTab === 'MY_MAPS' && <><Icon.Layout className="text-blue-500"/> My Maps</>}
+                                {activeTab === 'TEMPLATES' && <><Icon.Sparkles className="text-purple-500"/> Templates</>}
+                                {activeTab === 'SHARED' && <><Icon.Share className="text-green-500"/> Shared with Me</>}
+                                {activeTab === 'TRASH' && <><Icon.Trash className="text-red-500"/> Trash</>}
+                            </h1>
+                        </div>
+                        <p className="text-gray-500 font-medium ml-14">
                             {activeTab === 'MY_MAPS' && (isCloudOffline ? 'Local Workspace (Offline)' : (user ? 'Cloud Workspace (Synced)' : 'Local Workspace (Unsynced)'))}
                             {activeTab === 'TEMPLATES' && 'Start fast with pre-built structures'}
                             {activeTab === 'SHARED' && 'Collaborate on ideas with your team'}
