@@ -4,6 +4,9 @@ import SingularityCanvas from './components/SingularityCanvas';
 import { LandingPage } from './components/LandingPage';
 import { HomeScreen } from './components/HomeScreen';
 import { generateId } from './constants';
+import { AuthModal } from './components/AuthModal';
+import { supabase } from './lib/supabase';
+import { migrateLocalMapsToCloud, saveMapToCloud, createMapInCloud, loadMapFromCloud } from './services/cloudService';
 
 type ViewState = 'LANDING' | 'HOME' | 'CANVAS';
 
@@ -11,78 +14,154 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('LANDING');
   const [activeMapId, setActiveMapId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Auth State
+  const [user, setUser] = useState<any>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // Check for existing user or first time load
+  // Check Auth on Mount
   useEffect(() => {
-    const hasVisited = localStorage.getItem('singularity-visited');
-    const indexData = localStorage.getItem('singularity-maps-index');
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+          // Attempt migration on first load if logged in
+          migrateLocalMapsToCloud(session.user.id);
+      }
+    });
 
-    if (hasVisited && indexData) {
-       setCurrentView('HOME');
-    } else {
-       // Migration: Check if v2 data exists and migrate it to a map slot
-       const oldData = localStorage.getItem('singularity-data-v2');
-       if (oldData) {
-           const migrationId = generateId();
-           const parsed = JSON.parse(oldData);
-           const name = parsed.projectName || "Legacy Map";
-           
-           // Save to new slot
-           localStorage.setItem(`singularity-map-${migrationId}`, oldData);
-           
-           // Create index
-           const newIndex = [{ id: migrationId, name, lastModified: Date.now() }];
-           localStorage.setItem('singularity-maps-index', JSON.stringify(newIndex));
-           localStorage.setItem('singularity-visited', 'true');
-           
-           // Go to home
-           setCurrentView('HOME');
-       }
-    }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+          migrateLocalMapsToCloud(session.user.id);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  // Check for existing user or first time load (Local)
+  useEffect(() => {
+    // If not logged in, check local storage to determine view
+    if (!user) {
+        const hasVisited = localStorage.getItem('singularity-visited');
+        const indexData = localStorage.getItem('singularity-maps-index');
+
+        if (hasVisited && indexData) {
+           setCurrentView('HOME');
+        } else {
+           // Legacy Migration Check (v2 -> v3 Local)
+           const oldData = localStorage.getItem('singularity-data-v2');
+           if (oldData) {
+               const migrationId = generateId();
+               const parsed = JSON.parse(oldData);
+               const name = parsed.projectName || "Legacy Map";
+               
+               localStorage.setItem(`singularity-map-${migrationId}`, oldData);
+               
+               const newIndex = [{ id: migrationId, name, lastModified: Date.now() }];
+               localStorage.setItem('singularity-maps-index', JSON.stringify(newIndex));
+               localStorage.setItem('singularity-visited', 'true');
+               
+               setCurrentView('HOME');
+           }
+        }
+    } else {
+        // If logged in, default to HOME unless specific logic
+        setCurrentView('HOME');
+    }
+  }, [user]);
 
   const handleLaunchApp = () => {
     localStorage.setItem('singularity-visited', 'true');
     setCurrentView('HOME');
   };
 
-  const handleOpenMap = (mapId: string) => {
+  const handleOpenMap = async (mapId: string) => {
+    if (user) {
+        // If logged in, we might need to fetch data into local storage or state
+        // For simplicity in this version, we load into localStorage to keep Canvas component compatible,
+        // or we could pass initialData prop to Canvas.
+        // Let's load into localStorage as a cache mechanism.
+        try {
+            const content = await loadMapFromCloud(mapId);
+            if (content) {
+                localStorage.setItem(`singularity-map-${mapId}`, JSON.stringify(content));
+            }
+        } catch (e) {
+            console.error("Failed to load map from cloud", e);
+            // Fallback to local if it exists?
+        }
+    }
     setActiveMapId(mapId);
     setCurrentView('CANVAS');
   };
 
-  const handleCreateMap = (initialData?: any) => {
-      const newId = generateId();
-      
-      const indexStr = localStorage.getItem('singularity-maps-index');
-      const index = indexStr ? JSON.parse(indexStr) : [];
-      
+  const handleCreateMap = async (initialData?: any) => {
+      const newId = generateId(); // Note: For Cloud, Supabase generates UUIDs usually, but we can use generated ID for optimistic UI
       const name = initialData?.projectName || 'Untitled Mind Map';
-      const newMap = { id: newId, name, lastModified: Date.now() };
       
-      localStorage.setItem('singularity-maps-index', JSON.stringify([newMap, ...index]));
-      
-      if (initialData) {
-          // Initialize with template data
-          const mapData = {
-              nodes: initialData.nodes || [],
-              edgeData: initialData.edgeData || {},
-              drawings: [],
-              viewport: { x: window.innerWidth/2, y: window.innerHeight/2, zoom: 1 },
-              projectName: name,
-              canvasSettings: { theme: 'default', showGrid: true },
-              ...initialData
-          };
-          localStorage.setItem(`singularity-map-${newId}`, JSON.stringify(mapData));
+      const mapData = {
+          nodes: initialData?.nodes || [],
+          edgeData: initialData?.edgeData || {},
+          drawings: [],
+          viewport: { x: window.innerWidth/2, y: window.innerHeight/2, zoom: 1 },
+          projectName: name,
+          canvasSettings: { theme: 'default', showGrid: true },
+          ...initialData
+      };
+
+      if (user) {
+          try {
+              // Create in cloud
+              const newMap = await createMapInCloud(mapData);
+              // Note: newMap.id from Supabase might be different if we used auto-gen UUID. 
+              // For this hybrid approach, let's rely on the ID we generate if using upsert, 
+              // OR use the returned ID. 
+              // Simplest: Use the ID returned by Supabase if insert.
+              // But createMapInCloud in service currently returns data.
+              
+              // Update local cache
+              localStorage.setItem(`singularity-map-${newMap.id}`, JSON.stringify(mapData));
+              setActiveMapId(newMap.id);
+          } catch (e) {
+              console.error("Failed to create map in cloud", e);
+              alert("Failed to create map online. Saving locally.");
+              // Fallback local
+              saveLocal(newId, name, mapData);
+              setActiveMapId(newId);
+          }
+      } else {
+          saveLocal(newId, name, mapData);
+          setActiveMapId(newId);
       }
       
-      setActiveMapId(newId);
       setCurrentView('CANVAS');
+  };
+
+  const saveLocal = (id: string, name: string, data: any) => {
+      const indexStr = localStorage.getItem('singularity-maps-index');
+      const index = indexStr ? JSON.parse(indexStr) : [];
+      const newMap = { id, name, lastModified: Date.now() };
+      localStorage.setItem('singularity-maps-index', JSON.stringify([newMap, ...index]));
+      localStorage.setItem(`singularity-map-${id}`, JSON.stringify(data));
   };
 
   const handleBackToHome = () => {
       setActiveMapId(null);
       setCurrentView('HOME');
+      // Trigger a save to cloud if dirty? 
+      // Canvas component has auto-save to localStorage. 
+      // We should hook into that or trigger sync on exit.
+      // For now, rely on the Canvas auto-save which writes to localStorage.
+      // We need a mechanism to sync localStorage -> Cloud on exit.
+      if (user && activeMapId) {
+          const localData = localStorage.getItem(`singularity-map-${activeMapId}`);
+          if (localData) {
+              saveMapToCloud(activeMapId, JSON.parse(localData)).catch(e => console.error("Sync failed", e));
+          }
+      }
   };
 
   return (
@@ -97,6 +176,8 @@ const App: React.FC = () => {
             onOpenMap={handleOpenMap} 
             onCreateMap={handleCreateMap}
             onBackToLanding={() => setCurrentView('LANDING')}
+            onLoginClick={() => setIsAuthModalOpen(true)}
+            user={user}
           />
       )}
 
@@ -119,6 +200,15 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={() => {
+            // Migration is handled by useEffect on user change
+            setCurrentView('HOME');
+        }}
+      />
     </div>
   );
 };

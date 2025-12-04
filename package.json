@@ -1,3 +1,4 @@
+
 {
   "name": "copy-of-copy-of-singularity-–-mindmap",
   "private": true,
@@ -16,7 +17,8 @@
     "react-dom": "^18.3.1",
     "@google/genai": "^1.30.0",
     "lucide-react": "^0.554.0",
-    "html-to-image": "^1.11.13"
+    "html-to-image": "^1.11.13",
+    "@supabase/supabase-js": "^2.39.7"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
