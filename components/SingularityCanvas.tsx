@@ -576,13 +576,12 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
   const handleTouchMove = (e: React.TouchEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('button') || target.closest('input')) return;
+      // Allow move if we are linking (altLinkSourceId is set) even if target is button
+      if ((target.closest('button') || target.closest('input')) && !altLinkSourceId) return;
 
       if (e.touches.length === 1 && !isPinchingRef.current) {
           const touch = e.touches[0];
-          const last = lastTouchPosRef.current;
-          if (!last) return;
-
+          
           // --- Update Connection Line if dragging ---
           if (altLinkSourceId) {
               const x = (touch.clientX - viewport.x) / viewport.zoom;
@@ -591,6 +590,9 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
               return; // Don't pan or drag nodes while linking
           }
           // ----------------------------------------
+
+          const last = lastTouchPosRef.current;
+          if (!last) return;
 
           const dx = touch.clientX - last.x;
           const dy = touch.clientY - last.y;
@@ -700,6 +702,16 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       // --- Handle Connection Drop ---
       if (altLinkSourceId) {
           const touch = e.changedTouches[0];
+
+          // Sticky mode check for touch interaction (tap to link)
+          if (linkStartScreenPos) {
+             const dist = Math.hypot(touch.clientX - linkStartScreenPos.x, touch.clientY - linkStartScreenPos.y);
+             if (dist < 5) {
+                 setLinkStartScreenPos(null);
+                 return; // Stay in linking mode (Sticky)
+             }
+          }
+
           const hitEl = document.elementFromPoint(touch.clientX, touch.clientY);
           const nodeEl = hitEl?.closest('[data-node-id]');
           const hitNodeId = nodeEl?.getAttribute('data-node-id');
@@ -715,6 +727,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           }
           setAltLinkSourceId(null);
           setTempLinkEndPos(null);
+          setLinkStartScreenPos(null);
           return;
       }
       // ------------------------------
@@ -809,16 +822,30 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleAddNote = (isSticky: boolean, color?: string) => { const id = generateId(); const centerPos = { x: (window.innerWidth / 2 - viewport.x) / viewport.zoom, y: (window.innerHeight / 2 - viewport.y) / viewport.zoom }; const newNode: SingularityNode = { id, type: NodeType.NOTE, label: isSticky ? 'Sticky Note' : 'Type here...', position: centerPos, childrenIds: [], shape: isSticky ? undefined : 'rectangle', color: color || (isSticky ? '#fef3c7' : 'transparent'), }; updateState([...nodes, newNode]); setSelectedNodeIds(new Set([id])); if(canvasSettings.autoEditOnCreate !== false) setEditingNodeId(id); };
   const handleAutoLayout = () => { handleLayoutAction('MINDMAP_LR'); };
 
-  const handleStartLinkDrag = (e: React.MouseEvent, nodeId: string) => {
+  const handleStartLinkDrag = (e: React.MouseEvent | React.TouchEvent, nodeId: string) => {
       e.stopPropagation();
-      e.preventDefault();
+      // For touch, we don't want to call preventDefault on touchstart if it's passive, but we want to stop propagation.
+      // Drag logic relies on subsequent moves.
+      
+      let clientX, clientY;
+      if ('touches' in e) {
+          // Touch Event
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+      } else {
+          // Mouse Event
+          e.preventDefault();
+          clientX = (e as React.MouseEvent).clientX;
+          clientY = (e as React.MouseEvent).clientY;
+      }
+
       const node = nodes.find(n => n.id === nodeId);
       if(node) {
           setAltLinkSourceId(nodeId);
-          const x = (e.clientX - viewport.x) / viewport.zoom;
-          const y = (e.clientY - viewport.y) / viewport.zoom;
+          const x = (clientX - viewport.x) / viewport.zoom;
+          const y = (clientY - viewport.y) / viewport.zoom;
           setTempLinkEndPos({ x, y });
-          setLinkStartScreenPos({ x: e.clientX, y: e.clientY }); // Track start pos
+          setLinkStartScreenPos({ x: clientX, y: clientY }); // Track start pos
       }
   };
 

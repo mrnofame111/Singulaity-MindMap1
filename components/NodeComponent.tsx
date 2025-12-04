@@ -25,7 +25,7 @@ interface NodeProps {
   // Expansion Props
   isExpanded?: boolean; // True if children are visible
   onToggleExpand?: (nodeId: string) => void;
-  onStartLink?: (e: React.MouseEvent, nodeId: string) => void;
+  onStartLink?: (e: React.MouseEvent | React.TouchEvent, nodeId: string) => void;
 }
 
 // Helper to determine text color based on background luminance
@@ -509,6 +509,10 @@ const NodeComponent: React.FC<NodeProps> = ({
              onMouseDown={(e) => { 
                  e.stopPropagation(); 
                  e.preventDefault(); 
+                 if(onStartLink) onStartLink(e, node.id); 
+             }}
+             onTouchStart={(e) => {
+                 e.stopPropagation();
                  if(onStartLink) onStartLink(e, node.id); 
              }}
              className="w-5 h-5 bg-white hover:bg-green-50 text-gray-400 hover:text-green-500 rounded-full shadow-sm border border-gray-200 flex items-center justify-center transition-colors cursor-crosshair"
