@@ -1,4 +1,8 @@
 
+
+
+
+
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Viewport, SingularityNode, NodeType, HistoryStep, ToolMode, NodeShape, CanvasSettings, DrawingPath, EdgeOptions, AIGenerationOptions, AIAction, SnapLine, SmartStylingRules, Position, AIMindMapNode } from '../types';
 import { ZOOM_MIN, ZOOM_MAX, generateId, INITIAL_NODES, calculateLayout, recalculateLayout, layoutOrganic, layoutLocalFlower, TEMPLATES, APP_THEMES, LayoutType, pushNodesAside } from '../constants';
@@ -238,6 +242,9 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   // New State for Alt-Click / Connect Mode linking
   const [altLinkSourceId, setAltLinkSourceId] = useState<string | null>(null);
   const [tempLinkEndPos, setTempLinkEndPos] = useState<{x: number, y: number} | null>(null);
+  
+  // Drag-to-link State from ShapeDock
+  const [linkStartScreenPos, setLinkStartScreenPos] = useState<{x: number, y: number} | null>(null);
 
   // VOICE COMMAND STATE
   const [isVoiceActive, setIsVoiceActive] = useState(false);
@@ -520,20 +527,6 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
           
           const hitEl = document.elementFromPoint(touch.clientX, touch.clientY);
           
-          // Check for Connection Handle touch first
-          const handleEl = hitEl?.closest('.connection-handle');
-          if (handleEl) {
-              const nodeId = handleEl.getAttribute('data-node-id');
-              if (nodeId) {
-                  setAltLinkSourceId(nodeId);
-                  const node = nodes.find(n => n.id === nodeId);
-                  if (node) {
-                      setTempLinkEndPos({ x: node.position.x, y: node.position.y });
-                  }
-                  return; // Stop processing standard touch start
-              }
-          }
-
           const nodeEl = hitEl?.closest('[data-node-id]');
           const hitNodeId = nodeEl?.getAttribute('data-node-id');
           const hitNode = hitNodeId ? nodes.find(n => n.id === hitNodeId) : null;
@@ -819,6 +812,18 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
   const handleAddNote = (isSticky: boolean, color?: string) => { const id = generateId(); const centerPos = { x: (window.innerWidth / 2 - viewport.x) / viewport.zoom, y: (window.innerHeight / 2 - viewport.y) / viewport.zoom }; const newNode: SingularityNode = { id, type: NodeType.NOTE, label: isSticky ? 'Sticky Note' : 'Type here...', position: centerPos, childrenIds: [], shape: isSticky ? undefined : 'rectangle', color: color || (isSticky ? '#fef3c7' : 'transparent'), }; updateState([...nodes, newNode]); setSelectedNodeIds(new Set([id])); setEditingNodeId(id); };
   const handleAutoLayout = () => { handleLayoutAction('MINDMAP_LR'); };
 
+  const handleStartLinkDrag = (e: React.MouseEvent, nodeId: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const node = nodes.find(n => n.id === nodeId);
+      if(node) {
+          setAltLinkSourceId(nodeId);
+          const x = (e.clientX - viewport.x) / viewport.zoom;
+          const y = (e.clientY - viewport.y) / viewport.zoom;
+          setTempLinkEndPos({ x, y });
+      }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => { if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return; if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedEdgeIds.size > 0 && selectedNodeIds.size === 0) handleAction('edge-delete-selected'); else handleSelectionAction('delete'); } if (e.key === 'Tab') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, false); } if (e.key === 'Enter') { e.preventDefault(); if (selectedNodeIds.size === 1) handleAddNode(Array.from(selectedNodeIds)[0] as string, true); } if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !isPresentationFullscreen) { e.preventDefault(); setMode(prev => prev === ToolMode.SELECT ? ToolMode.HAND : prev === ToolMode.HAND ? ToolMode.CONNECT : ToolMode.SELECT); } if (e.key.toLowerCase() === 'v') setMode(ToolMode.SELECT); if (e.key.toLowerCase() === 'h') setMode(ToolMode.HAND); if (e.key.toLowerCase() === 'd') setMode(ToolMode.DRAW); if (e.key.toLowerCase() === 'l') handleAutoLayout(); if (e.key.toLowerCase() === 'c') handleAction('center'); if (e.key === 'Escape') { setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); setConnectSourceId(null); setAltLinkSourceId(null); setTempLinkEndPos(null); setMode(ToolMode.SELECT); setIsFindOpen(false); setIsAiOptionsOpen(false); setIsMediaModalOpen(false); setIsShortcutsOpen(false); setIsCmdPaletteOpen(false); setIsDreamModalOpen(false); setIsExportModalOpen(false); setActiveContextNodeId(null); setActiveEdgeId(null); setActiveControlPoint(null); setContextMenuAnchor(null); setFocusNodeId(null); if(isPresentationFullscreen) { document.exitFullscreen(); setIsPresentationFullscreen(false); } setIsToolSelectionMode(false); setIsSidebarOpen(false); setIsRightPanelOpen(false); } if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y') { e.preventDefault(); redo(); } if (e.key === 'a') { e.preventDefault(); handleAction('select-all'); } if (e.key === 'f') { e.preventDefault(); handleAction('search'); } if (e.key === 'k') { e.preventDefault(); setIsCmdPaletteOpen(prev => !prev); } } if (e.ctrlKey && e.altKey) { if (e.key.toLowerCase() === 'c') { e.preventDefault(); handleAction('copy-style'); } if (e.key.toLowerCase() === 'v') { e.preventDefault(); handleAction('paste-style'); } } if (e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); handleAction('present'); } };
     window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown);
@@ -1001,7 +1006,8 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       return node ? node.position : { x: 0, y: 0 };
   };
 
-  // Get selected node for drag handle rendering
+  // Get selected node for drag handle rendering - DEPRECATED: Moving logic to NodeComponent side controls
+  // Leaving variable for potential legacy support or cleanup
   const singleSelectedNode = selectedNodeIds.size === 1 ? nodes.find(n => n.id === Array.from(selectedNodeIds)[0]) : null;
 
   return (
@@ -1039,28 +1045,28 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       
       <OutlinePanel isOpen={isOutlineOpen} setIsOpen={setIsOutlineOpen} nodes={nodes} onSelectNode={(id) => { const node = getNodeById(id); if (node) { setFocusNodeId(id); centerOnNode(id); } }} isSidebarOpen={isSidebarOpen} />
 
-      {/* CONNECT MODE TOGGLE (MOBILE) - Positioned below Multi-Select */}
-      <button 
-         onClick={() => setMode(mode === ToolMode.CONNECT ? ToolMode.SELECT : ToolMode.CONNECT)}
-         className={`fixed top-[12rem] z-[60] p-2.5 rounded-lg shadow-clay-md border transition-all duration-300 ease-in-out
-            ${mode === ToolMode.CONNECT ? 'bg-green-50 border-green-500 text-green-600' : 'bg-white border-gray-200 text-gray-500 hover:text-green-600 hover:border-green-400'}
-         `}
-         style={{ left: isSidebarOpen ? '280px' : '16px' }}
-         title="Toggle Connect Mode"
-      >
-          {mode === ToolMode.CONNECT ? <Icon.Connect size={20} /> : <Icon.Connect size={20} className="opacity-50" />}
-      </button>
-
-      {/* MULTI SELECT TOGGLE (MOBILE) - MOVED TO TOP-44 */}
+      {/* MULTI SELECT TOGGLE (MOBILE) - MOVED TO TOP-48 */}
       <button 
          onClick={() => setIsMultiSelectMode(!isMultiSelectMode)}
-         className={`fixed top-44 z-[60] p-2.5 rounded-lg shadow-clay-md border transition-all duration-300 ease-in-out
+         className={`fixed top-48 z-[60] p-2.5 rounded-lg shadow-clay-md border transition-all duration-300 ease-in-out
             ${isMultiSelectMode ? 'bg-blue-50 border-blue-500 text-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:text-blue-600 hover:border-blue-400'}
          `}
          style={{ left: isSidebarOpen ? '280px' : '16px' }}
          title="Toggle Multi-Select"
       >
           {isMultiSelectMode ? <Icon.Task size={20} /> : <Icon.Select size={20} />}
+      </button>
+
+      {/* CONNECT MODE TOGGLE (MOBILE) - MOVED TO TOP-[15.5rem] */}
+      <button 
+         onClick={() => setMode(mode === ToolMode.CONNECT ? ToolMode.SELECT : ToolMode.CONNECT)}
+         className={`fixed top-[15.5rem] z-[60] p-2.5 rounded-lg shadow-clay-md border transition-all duration-300 ease-in-out
+            ${mode === ToolMode.CONNECT ? 'bg-green-50 border-green-500 text-green-600' : 'bg-white border-gray-200 text-gray-500 hover:text-green-600 hover:border-green-400'}
+         `}
+         style={{ left: isSidebarOpen ? '280px' : '16px' }}
+         title="Toggle Connect Mode"
+      >
+          {mode === ToolMode.CONNECT ? <Icon.Connect size={20} /> : <Icon.Connect size={20} className="opacity-50" />}
       </button>
 
       {/* TOOLBAR STACK - BOTTOM LEFT */}
@@ -1268,37 +1274,11 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
                         onDataChange={handleDataChange}
                         isExpanded={!collapsedNodeIds.has(node.id)}
                         onToggleExpand={handleToggleNodeExpansion}
+                        onStartLink={handleStartLinkDrag}
                     />
                   );
               })}
               
-              {/* --- CONNECTION HANDLE (FOR DRAG & DROP LINKING) --- */}
-              {singleSelectedNode && (
-                  <div 
-                      className="connection-handle absolute z-50 flex items-center justify-center w-6 h-6 bg-blue-500 text-white rounded-full shadow-md border-2 border-white cursor-crosshair hover:scale-110 transition-transform touch-none"
-                      style={{ 
-                          left: singleSelectedNode.position.x + 50, // Offset to right
-                          top: singleSelectedNode.position.y, 
-                          transform: 'translate(-50%, -50%)' 
-                      }}
-                      data-node-id={singleSelectedNode.id}
-                      onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setAltLinkSourceId(singleSelectedNode.id);
-                          setTempLinkEndPos({ x: singleSelectedNode.position.x, y: singleSelectedNode.position.y });
-                      }}
-                      onTouchStart={(e) => {
-                          // Handled in main TouchStart but we prevent bubbling here just in case
-                          // Actually main handler uses elementFromPoint so it will catch this.
-                          // But stopping prop helps prevent node selection logic from firing again.
-                          // We'll let main handler deal with it via class check.
-                      }}
-                      title="Drag to connect"
-                  >
-                      <Icon.Plus size={14} />
-                  </div>
-              )}
-
           </div>
         </div>
       </div>

@@ -51,7 +51,7 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({ isOpen, setIsOpen, n
       return (
           <button 
              onClick={() => setIsOpen(true)}
-             className={`fixed top-32 z-30 p-2.5 bg-white rounded-lg shadow-clay-sm border border-gray-200 text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-all duration-300 ease-in-out`}
+             className={`fixed top-[8.5rem] z-30 p-2.5 bg-white rounded-lg shadow-clay-sm border border-gray-200 text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-all duration-300 ease-in-out`}
              style={{ left: isSidebarOpen ? '280px' : '16px' }}
              title="Open Outline"
           >
@@ -62,7 +62,7 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({ isOpen, setIsOpen, n
 
   return (
     <div 
-        className="fixed top-32 bottom-24 w-[240px] z-30 flex flex-col pointer-events-none transition-all duration-300 ease-in-out"
+        className="fixed top-[8.5rem] bottom-24 w-[240px] z-30 flex flex-col pointer-events-none transition-all duration-300 ease-in-out"
         style={{ left: isSidebarOpen ? '280px' : '16px' }}
     >
         <div className="bg-white/95 backdrop-blur-xl rounded-2xl border border-white/40 shadow-clay-lg flex flex-col h-full pointer-events-auto overflow-hidden max-h-[calc(100dvh-150px)]">

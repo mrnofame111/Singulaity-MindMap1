@@ -25,6 +25,7 @@ interface NodeProps {
   // Expansion Props
   isExpanded?: boolean; // True if children are visible
   onToggleExpand?: (nodeId: string) => void;
+  onStartLink?: (e: React.MouseEvent, nodeId: string) => void;
 }
 
 // Helper to determine text color based on background luminance
@@ -61,7 +62,8 @@ const NodeComponent: React.FC<NodeProps> = ({
   onListChange,
   onDataChange,
   isExpanded = true,
-  onToggleExpand
+  onToggleExpand,
+  onStartLink
 }) => {
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const [localLabel, setLocalLabel] = useState(node.label);
@@ -293,24 +295,17 @@ const NodeComponent: React.FC<NodeProps> = ({
   const isNote = node.type === NodeType.NOTE;
 
   // Determine effective background color to calculate text contrast
-  // If custom color is set, use it. Otherwise, assume defaults based on type/theme
-  // For ROOT default is dark, others default is light (approx)
   const effectiveBgColor = (node.color && node.color.startsWith('#')) ? node.color : undefined;
   
-  // Calculate Text Color
   let textColor = '#1e293b'; // Default dark
   if (effectiveBgColor) {
       textColor = getContrastColor(effectiveBgColor);
   } else if (isRoot && !baseColorClass.includes('text-slate-900')) {
-      // If root and no custom color, and class doesn't enforce dark text, assume white text default
       textColor = '#ffffff';
   } else if (node.color && node.color.includes('text-white')) {
       textColor = '#ffffff';
   }
 
-  // Calculate Text Halo/Shadow
-  // If text is white -> Dark shadow for readability
-  // If text is black -> White halo (borderline) as requested
   const textShadow = textColor === '#ffffff' 
       ? '0 1px 2px rgba(0,0,0,0.8)' 
       : '1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff';
@@ -386,7 +381,6 @@ const NodeComponent: React.FC<NodeProps> = ({
       );
   };
 
-  // DATA DRAWER CONTENT (Presentation Items) - Top Right or similar, kept for "Present Mode" items
   const renderPresentationDrawer = () => {
       if (!isDataDrawerOpen || !node.data?.presentationItems || node.data.presentationItems.length === 0) return null;
       
@@ -405,13 +399,11 @@ const NodeComponent: React.FC<NodeProps> = ({
                       </div>
                   ))}
               </div>
-              {/* Little Triangle pointing up */}
               <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white/90 rotate-45 border-l border-t border-white/50" />
           </div>
       );
   };
 
-  // DESCRIPTION DRAWER (Bottom)
   const renderDescriptionDrawer = () => {
       if (!isDescriptionOpen) return null;
 
@@ -420,7 +412,6 @@ const NodeComponent: React.FC<NodeProps> = ({
             className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-64 bg-yellow-50/95 backdrop-blur-sm border border-yellow-200/50 rounded-xl shadow-xl z-[90] animate-slide-up origin-top flex flex-col overflow-hidden"
             onMouseDown={(e) => e.stopPropagation()}
           >
-              {/* Little Triangle pointing up */}
               <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-yellow-50 rotate-45 border-l border-t border-yellow-200/50 z-20" />
               
               <div className="p-2 border-b border-yellow-200/30 bg-yellow-100/30 flex items-center justify-between">
@@ -437,10 +428,10 @@ const NodeComponent: React.FC<NodeProps> = ({
       );
   };
 
+  const hasChildren = node.childrenIds.length > 0;
+
   return (
     <div
-      // COMPLETELY REMOVED transition-all and duration classes from outer div to fix drag sync.
-      // Using raw absolute positioning for 1:1 cursor tracking.
       className={`absolute group ${isDimmed ? 'opacity-10 grayscale pointer-events-none' : ''}`}
       data-node-id={node.id}
       style={{ 
@@ -469,7 +460,6 @@ const NodeComponent: React.FC<NodeProps> = ({
         </div>
       )}
       
-      {/* 1. DATA DRAWER TOGGLE (v) - Top Right corner for Presentation Items */}
       {node.data?.presentationItems && node.data.presentationItems.length > 0 && (
           <div 
             onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); setIsDataDrawerOpen(!isDataDrawerOpen); }}
@@ -486,25 +476,47 @@ const NodeComponent: React.FC<NodeProps> = ({
           </div>
       )}
 
-      {/* 2. BRANCH EXPANDER (</>) - MOVED TO RIGHT SIDE */}
-      {node.childrenIds.length > 0 && (
-          <div 
-            onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); if(onToggleExpand) onToggleExpand(node.id); }}
-            onMouseDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}
-            className={`
-                absolute top-1/2 -right-6 -translate-y-1/2 z-40 
-                bg-white/90 backdrop-blur-md text-gray-500 hover:text-indigo-600 hover:bg-white
-                w-5 h-8 flex items-center justify-center rounded-full shadow-sm border border-gray-200 
-                cursor-pointer transition-transform duration-200 hover:scale-110 hover:shadow-md
-                ${!isExpanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
-            `}
-            title={isExpanded ? "Collapse Branch" : "Expand Branch"}
+      {/* --- SIDE CONTROLS (ADD CHILD, LINK, EXPAND) --- */}
+      <div 
+        className={`absolute right-[-24px] top-1/2 -translate-y-1/2 flex flex-col items-center gap-1.5 z-50 transition-opacity duration-200 
+            ${isHovered || isSelected ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        onMouseDown={(e) => e.stopPropagation()} // Prevent node drag when clicking controls
+      >
+          {/* Add Child (Triangle Up) */}
+          <button
+             onClick={(e) => { e.stopPropagation(); onAddChild(node.id); }}
+             className="w-5 h-5 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-500 rounded-full shadow-sm border border-gray-200 flex items-center justify-center transition-colors"
+             title="Add Child Node"
           >
-              {/* If Expanded (Visible Children) -> Show Left Chevron (<) to collapse */}
-              {/* If Collapsed (Hidden Children) -> Show Right Chevron (>) to expand */}
-              {isExpanded ? <Icon.ChevronLeft size={16} strokeWidth={2.5} /> : <Icon.ChevronRight size={16} strokeWidth={2.5} />}
-          </div>
-      )}
+             <Icon.Plus size={12} strokeWidth={3} />
+          </button>
+
+          {/* Expand/Collapse (Middle) */}
+          {hasChildren ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); if(onToggleExpand) onToggleExpand(node.id); }}
+                className="w-5 h-5 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-800 rounded-full shadow-sm border border-gray-200 flex items-center justify-center transition-colors"
+                title={isExpanded ? "Collapse Branch" : "Expand Branch"}
+              >
+                  {isExpanded ? <Icon.ChevronLeft size={14} /> : <Icon.ChevronRight size={14} />}
+              </button>
+          ) : (
+              <div className="w-1 h-4 bg-gray-200 rounded-full" />
+          )}
+
+          {/* Link (Triangle Down/Right) */}
+          <button
+             onMouseDown={(e) => { 
+                 e.stopPropagation(); 
+                 e.preventDefault(); 
+                 if(onStartLink) onStartLink(e, node.id); 
+             }}
+             className="w-5 h-5 bg-white hover:bg-green-50 text-gray-400 hover:text-green-500 rounded-full shadow-sm border border-gray-200 flex items-center justify-center transition-colors cursor-crosshair"
+             title="Drag to Link"
+          >
+             <Icon.Arrow size={12} strokeWidth={3} className="-rotate-45 translate-x-0.5 translate-y-0.5" />
+          </button>
+      </div>
 
       {/* 3. DESCRIPTION DRAWER TOGGLE (v) - BOTTOM CENTER */}
       <div 
@@ -525,7 +537,6 @@ const NodeComponent: React.FC<NodeProps> = ({
       {renderPresentationDrawer()}
       {renderDescriptionDrawer()}
       
-      {/* DREAMING INDICATOR */}
       {isDreaming && (
         <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-50 bg-white/90 backdrop-blur text-purple-600 px-3 py-1 rounded-full shadow-lg border border-purple-200 flex items-center gap-2 animate-bounce">
             <Icon.Sparkles size={14} className="animate-spin" />
@@ -533,7 +544,6 @@ const NodeComponent: React.FC<NodeProps> = ({
         </div>
       )}
 
-      {/* EXTERNAL LINK INDICATOR */}
       {hasExternalLink && !isEditing && (
           <div 
             className="absolute -top-3 -left-3 z-30 bg-blue-500 text-white p-1.5 rounded-full shadow hover:scale-110 cursor-pointer transition-transform border border-white/20"
@@ -547,7 +557,6 @@ const NodeComponent: React.FC<NodeProps> = ({
       {/* PARENT WRAPPER FOR BACKPLATE + MAIN CONTENT */}
       <div className="relative">
           
-          {/* SELECTION BACKPLATE (FOR CLIPPED SHAPES) */}
           {isClipped && (isSelected || isHighlighted) && (
              <div 
                className={`absolute inset-0 transition-transform duration-200 ${isSelected ? 'bg-blue-500' : 'bg-yellow-400'}`}
@@ -596,7 +605,6 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <Icon.Sparkles size={32} className="text-white animate-spin" />
                        </div>
                   )}
-                  {/* Caption for Dream Nodes */}
                   {!isEditing && node.label && hasImage && (
                        <div className="absolute bottom-2 left-0 right-0 bg-black/60 text-white text-xs px-2 py-1 text-center backdrop-blur-sm mx-2 rounded">
                            {node.label}
@@ -605,7 +613,6 @@ const NodeComponent: React.FC<NodeProps> = ({
               </div>
             )}
 
-            {/* CODE NODE */}
             {isCode && (
               <div className="w-full h-full flex flex-col">
                   <div className="bg-[#2d2d2d] px-3 py-2 flex items-center justify-between border-b border-gray-700 rounded-t-lg">
@@ -639,7 +646,6 @@ const NodeComponent: React.FC<NodeProps> = ({
               </div>
             )}
 
-            {/* TABLE NODE */}
             {isTable && (
               <div className="w-full h-full flex flex-col bg-white rounded-lg overflow-hidden">
                   <div className="bg-gray-100 p-2 border-b border-gray-200 font-bold text-xs text-center text-gray-600 uppercase tracking-wider flex items-center justify-between">
