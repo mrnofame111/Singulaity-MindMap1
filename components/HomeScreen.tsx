@@ -23,6 +23,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
     const [maps, setMaps] = useState<MapMetadata[]>([]);
     const [search, setSearch] = useState('');
     const [activeTab, setActiveTab] = useState<TabType>('MY_MAPS');
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
     // Delete Confirmation State
     const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -121,10 +122,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                 activeTab === id 
                 ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' 
                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-            }`}
+            } ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
+            title={isSidebarCollapsed ? label : undefined}
         >
             <IconC size={18} className={activeTab === id ? 'text-blue-600' : 'text-gray-400'} /> 
-            {label}
+            {!isSidebarCollapsed && <span className="truncate">{label}</span>}
         </button>
     );
 
@@ -132,16 +134,32 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
         <div className="w-full h-full bg-[#f0f4f8] flex overflow-hidden">
             
             {/* Sidebar */}
-            <div className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm">
-                <div className="p-6 border-b border-gray-100">
-                    <div className="flex items-center gap-3 text-indigo-600 mb-1">
-                        <Icon.Brain size={28} />
-                        <span className="font-display font-black text-xl tracking-tight">SINGULARITY</span>
-                    </div>
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-10">Workspace</span>
+            <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-white border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm transition-all duration-300 ease-in-out`}>
+                <div className={`p-6 border-b border-gray-100 flex items-center ${isSidebarCollapsed ? 'justify-center flex-col gap-4' : 'justify-between'}`}>
+                    {isSidebarCollapsed ? (
+                        <div className="mb-2">
+                             <Icon.Brain size={28} className="text-indigo-600" />
+                        </div>
+                    ) : (
+                        <div className="flex flex-col overflow-hidden">
+                             <div className="flex items-center gap-3 text-indigo-600 mb-1">
+                                <Icon.Brain size={28} className="shrink-0" />
+                                <span className="font-display font-black text-xl tracking-tight truncate">SINGULARITY</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-10 truncate">Workspace</span>
+                        </div>
+                    )}
+
+                    <button 
+                        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                        className={`text-gray-400 hover:text-indigo-600 transition-colors p-1.5 rounded-lg hover:bg-gray-50`}
+                        title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                    >
+                        <Icon.PanelLeft size={20} className={isSidebarCollapsed ? "rotate-180" : ""} />
+                    </button>
                 </div>
 
-                <div className="flex-1 py-6 px-4 space-y-2">
+                <div className="flex-1 py-6 px-4 space-y-2 overflow-hidden">
                     <SidebarButton id="MY_MAPS" label="My Maps" icon={Icon.Layout} />
                     <SidebarButton id="TEMPLATES" label="Templates" icon={Icon.Sparkles} />
                     <SidebarButton id="SHARED" label="Shared with Me" icon={Icon.Share} />
@@ -149,8 +167,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                 </div>
 
                 <div className="p-4 border-t border-gray-200">
-                    <button onClick={onBackToLanding} className="flex items-center gap-2 text-xs font-bold text-gray-400 hover:text-gray-600 transition-colors w-full px-2 py-2 rounded-lg hover:bg-gray-50">
-                        <Icon.Arrow className="rotate-180" size={12} /> Back to Landing
+                    <button onClick={onBackToLanding} className={`flex items-center gap-2 text-xs font-bold text-gray-400 hover:text-gray-600 transition-colors w-full px-2 py-2 rounded-lg hover:bg-gray-50 ${isSidebarCollapsed ? 'justify-center' : ''}`} title={isSidebarCollapsed ? "Back to Landing" : undefined}>
+                        <Icon.Arrow className="rotate-180 shrink-0" size={12} /> 
+                        {!isSidebarCollapsed && <span className="truncate">Back to Landing</span>}
                     </button>
                 </div>
             </div>

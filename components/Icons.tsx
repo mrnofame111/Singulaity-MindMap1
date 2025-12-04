@@ -88,7 +88,8 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Globe,
-  Mic
+  Mic,
+  PanelLeft
 } from 'lucide-react';
 
 export const Icon = {
@@ -182,5 +183,6 @@ export const Icon = {
   ChevronsLeft,
   ChevronsRight,
   Globe,
-  Mic
+  Mic,
+  PanelLeft
 };
