@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Icon } from './Icons';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -169,14 +170,50 @@ const ConnectionRenderer: React.FC<{
             className="group"
             style={{ pointerEvents: 'auto' }}
         >
-            <path d={pathData} fill="none" stroke="transparent" strokeWidth={20} className="cursor-pointer" />
-            <path d={pathData} fill="none" stroke={color} strokeWidth={isHovered ? 4 : 2} strokeDasharray={style === 'straight' ? '5,5' : 'none'} strokeLinecap="round" className="transition-all duration-200" />
+            {/* INVISIBLE HIT AREA FOR PATH - WIDER FOR EASIER HOVER/GRAB */}
+            <path 
+                d={pathData} 
+                fill="none" 
+                stroke="transparent" 
+                strokeWidth={20} 
+                className="cursor-pointer" 
+            />
+
+            {/* VISIBLE PATH */}
+            <path 
+                d={pathData} 
+                fill="none" 
+                stroke={color} 
+                strokeWidth={isHovered ? 4 : 2} 
+                strokeDasharray={style === 'straight' ? '5,5' : 'none'} 
+                strokeLinecap="round" 
+                className="transition-all duration-200 pointer-events-none" 
+            />
+
+            {/* ANCHOR POINT */}
             {renderAnchors && anchorPos && (
-                <circle cx={anchorPos.x} cy={anchorPos.y} r={6} fill={color} stroke="white" strokeWidth={2} className="cursor-move hover:scale-125 transition-transform" onMouseDown={onAnchorDrag} />
+                <g className="cursor-move" onMouseDown={onAnchorDrag}>
+                    {/* Invisible Hit Circle */}
+                    <circle cx={anchorPos.x} cy={anchorPos.y} r={15} fill="transparent" />
+                    {/* Visible Anchor */}
+                    <circle cx={anchorPos.x} cy={anchorPos.y} r={6} fill={color} stroke="white" strokeWidth={2} className={`transition-transform duration-200 ${isHovered ? 'scale-125' : ''}`} pointerEvents="none" />
+                </g>
             )}
-            {(isHovered || (controlPoints && controlPoints.length > 0)) && controlPoints?.map((cp, idx) => (
-                 <circle key={idx} cx={cp.x} cy={cp.y} r={5} fill="white" stroke={color} strokeWidth={2} className="cursor-move hover:scale-125 transition-transform" onMouseDown={(e) => onControlPointDrag && onControlPointDrag(idx, e, cp)} />
+
+            {/* CONTROL POINTS */}
+            {controlPoints && controlPoints.length > 0 && controlPoints.map((cp, idx) => (
+                 <g key={idx} className="cursor-move" onMouseDown={(e) => onControlPointDrag && onControlPointDrag(idx, e, cp)}>
+                    {/* Invisible Hit Circle */}
+                    <circle cx={cp.x} cy={cp.y} r={12} fill="transparent" />
+                    {/* Visible Control Point */}
+                    <circle cx={cp.x} cy={cp.y} r={5} fill="white" stroke={color} strokeWidth={2} className={`transition-transform duration-200 ${isHovered ? 'scale-125' : ''}`} pointerEvents="none" />
+                 </g>
             ))}
+            
+            {/* Show ghost control points on hover if none exist (Interaction Hint) */}
+            {isHovered && (!controlPoints || controlPoints.length === 0) && (
+                <path d={pathData} stroke="transparent" fill="none" strokeWidth={10} className="cursor-pointer" />
+            )}
         </g>
     );
 };
@@ -1151,8 +1188,10 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 const newY = canvasY - dragOffset.y;
                                 const contentW = contentDimensions.width; const contentH = contentDimensions.height;
                                 const pdfTopLeftX = CANVAS_CENTER - contentW / 2; const pdfTopLeftY = CANVAS_CENTER - contentH / 2;
+                                // Simple clamp for percentage calculation
                                 const anchorX = Math.max(0, Math.min(100, ((newX - pdfTopLeftX) / contentW) * 100));
                                 const anchorY = Math.max(0, Math.min(100, ((newY - pdfTopLeftY) / contentH) * 100));
+                                
                                 if (!n.anchor || n.anchor.x !== anchorX || n.anchor.y !== anchorY) { changed = true; return { ...n, anchor: { x: anchorX, y: anchorY } }; }
                              } else if (dragTarget.type === 'controlPoint' && dragTarget.index !== undefined) {
                                 const newX = canvasX - dragOffset.x;
@@ -1692,7 +1731,9 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                     </div>
 
                     {/* RIGHT: INFINITE CANVAS */}
-                    <div className="flex-1 flex flex-col bg-[#e5e7eb] relative min-w-0 h-full overflow-hidden">
+                    <div 
+                        className={`flex-1 flex flex-col bg-[#e5e7eb] relative min-w-0 h-full overflow-hidden ${dragTarget ? 'cursor-grabbing' : ''}`}
+                    >
                         {/* CANVAS TOOLBAR */}
                         <div className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-3 shrink-0 z-20 shadow-sm relative">
                             <div className="flex items-center gap-1">
