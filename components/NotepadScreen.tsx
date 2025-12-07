@@ -90,6 +90,7 @@ const CANVAS_CENTER = CANVAS_SIZE / 2;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5.0;
 const INITIAL_ZOOM = 0.8;
+const MAX_HISTORY = 100;
 
 // Catmull-Rom Spline Helper for smooth string bending
 const solveCatmullRom = (p0: ControlPoint, p1: ControlPoint, p2: ControlPoint, p3: ControlPoint, tension: number = 0.5) => {
@@ -120,7 +121,8 @@ const ConnectionRenderer: React.FC<{
     onAnchorDrag?: (e: React.MouseEvent) => void;
     controlPoints?: ControlPoint[];
     onControlPointDrag?: (index: number, e: React.MouseEvent, pt: {x: number, y: number}) => void;
-}> = ({ points, style, color, isHovered, onHover, onContextMenu, renderAnchors, anchorPos, onAnchorDrag, controlPoints, onControlPointDrag }) => {
+    onControlPointContextMenu?: (index: number, e: React.MouseEvent) => void;
+}> = ({ points, style, color, isHovered, onHover, onContextMenu, renderAnchors, anchorPos, onAnchorDrag, controlPoints, onControlPointDrag, onControlPointContextMenu }) => {
     const pathData = useMemo(() => {
         if (points.length < 2) return '';
         const start = points[0];
@@ -179,7 +181,7 @@ const ConnectionRenderer: React.FC<{
                 className="cursor-pointer" 
             />
 
-            {/* VISIBLE PATH - NO TRANSITION for 1:1 sync */}
+            {/* VISIBLE PATH */}
             <path 
                 d={pathData} 
                 fill="none" 
@@ -187,7 +189,7 @@ const ConnectionRenderer: React.FC<{
                 strokeWidth={isHovered ? 4 : 2} 
                 strokeDasharray={style === 'straight' ? '5,5' : 'none'} 
                 strokeLinecap="round" 
-                className="pointer-events-none transition-colors duration-200" 
+                className="pointer-events-none" 
             />
 
             {/* ANCHOR POINT */}
@@ -195,15 +197,15 @@ const ConnectionRenderer: React.FC<{
                 <g 
                     className="cursor-move" 
                     onMouseDown={(e) => {
+                        e.preventDefault();
                         e.stopPropagation();
-                        e.preventDefault(); // Critical to stop canvas pan
+                        e.nativeEvent.stopImmediatePropagation();
                         onAnchorDrag && onAnchorDrag(e);
                     }}
                 >
-                    {/* Invisible Hit Circle - Larger to prevent mouse slip */}
                     <circle cx={anchorPos.x} cy={anchorPos.y} r={24} fill="transparent" />
-                    {/* Visible Anchor */}
-                    <circle cx={anchorPos.x} cy={anchorPos.y} r={6} fill={color} stroke="white" strokeWidth={2} className={`transition-transform duration-200 ${isHovered ? 'scale-125' : ''}`} pointerEvents="none" />
+                    {/* Fixed radius instead of scale transform to prevent "flying away" effect */}
+                    <circle cx={anchorPos.x} cy={anchorPos.y} r={isHovered ? 7 : 5} fill={color} stroke="white" strokeWidth={2} pointerEvents="none" />
                 </g>
             )}
 
@@ -211,24 +213,25 @@ const ConnectionRenderer: React.FC<{
             {controlPoints && controlPoints.length > 0 && controlPoints.map((cp, idx) => (
                  <g 
                     key={idx} 
-                    className="cursor-move" 
+                    className="cursor-pointer" 
                     onMouseDown={(e) => {
+                        e.preventDefault();
                         e.stopPropagation();
-                        e.preventDefault(); // Critical
+                        e.nativeEvent.stopImmediatePropagation();
                         onControlPointDrag && onControlPointDrag(idx, e, cp);
                     }}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onControlPointContextMenu && onControlPointContextMenu(idx, e);
+                    }}
                  >
-                    {/* Invisible Hit Circle - Larger */}
+                    {/* Invisible Hit Circle */}
                     <circle cx={cp.x} cy={cp.y} r={20} fill="transparent" />
-                    {/* Visible Control Point */}
-                    <circle cx={cp.x} cy={cp.y} r={5} fill="white" stroke={color} strokeWidth={2} className={`transition-transform duration-200 ${isHovered ? 'scale-125' : ''}`} pointerEvents="none" />
+                    {/* Visible Control Point - Fixed radius to avoid CSS transform origin issues */}
+                    <circle cx={cp.x} cy={cp.y} r={isHovered ? 7 : 5} fill="white" stroke={color} strokeWidth={2} pointerEvents="none" />
                  </g>
             ))}
-            
-            {/* Show ghost control points hint when hovering */}
-            {isHovered && (!controlPoints || controlPoints.length === 0) && (
-                <path d={pathData} stroke="transparent" fill="none" strokeWidth={10} className="cursor-pointer" />
-            )}
         </g>
     );
 };
@@ -249,15 +252,12 @@ const NotepadMinimap: React.FC<{
         if (!ref.current) return;
         const rect = ref.current.getBoundingClientRect();
         
-        // Calculate relative position within minimap (0 to MINIMAP_SIZE)
         const mx = Math.max(0, Math.min(MINIMAP_SIZE, clientX - rect.left));
         const my = Math.max(0, Math.min(MINIMAP_SIZE, clientY - rect.top));
         
-        // Convert to Canvas Coordinate Space (0 to CANVAS_SIZE)
         const canvasX = mx / SCALE;
         const canvasY = my / SCALE;
         
-        // We want (canvasX, canvasY) to be the CENTER of the viewport
         const newX = (containerSize.width / 2) - (canvasX * viewport.zoom);
         const newY = (containerSize.height / 2) - (canvasY * viewport.zoom);
         
@@ -292,7 +292,6 @@ const NotepadMinimap: React.FC<{
         };
     }, [isDragging, viewport.zoom, containerSize]);
 
-    // Calculate Visual Rects for Minimap Display
     const viewRect = {
         x: (-viewport.x / viewport.zoom) * SCALE,
         y: (-viewport.y / viewport.zoom) * SCALE,
@@ -315,55 +314,11 @@ const NotepadMinimap: React.FC<{
             onMouseDown={handleMouseDown}
             onContextMenu={(e) => e.preventDefault()}
         >
-            {/* Grid Background */}
             <div className="w-full h-full bg-gray-50 relative pointer-events-none">
-                 <div className="absolute inset-0 opacity-20" 
-                      style={{ 
-                          backgroundImage: 'radial-gradient(#9ca3af 1px, transparent 1px)', 
-                          backgroundSize: '10px 10px' 
-                      }} 
-                 />
-
-                {/* PDF/Content Area */}
-                {contentRect && (
-                    <div 
-                        className="absolute bg-white border border-gray-300 shadow-sm"
-                        style={{
-                            left: contentRect.x,
-                            top: contentRect.y,
-                            width: contentRect.w,
-                            height: contentRect.h
-                        }}
-                    />
-                )}
-
-                {/* Sticky Notes */}
-                {stickyNotes.map(note => (
-                    <div 
-                        key={note.id}
-                        className="absolute rounded-sm"
-                        style={{
-                            left: note.x * SCALE,
-                            top: note.y * SCALE,
-                            width: (note.minimized ? 20 : 100) * SCALE, 
-                            height: (note.minimized ? 20 : 80) * SCALE, 
-                            backgroundColor: note.color,
-                            border: '1px solid rgba(0,0,0,0.1)'
-                        }}
-                    />
-                ))}
-
-                {/* Viewport Indicator */}
-                <div 
-                    className="absolute border-2 border-red-500 bg-red-500/10 cursor-move"
-                    style={{
-                        left: viewRect.x,
-                        top: viewRect.y,
-                        width: viewRect.w,
-                        height: viewRect.h,
-                        pointerEvents: 'none' 
-                    }}
-                />
+                 <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(#9ca3af 1px, transparent 1px)', backgroundSize: '10px 10px' }} />
+                {contentRect && <div className="absolute bg-white border border-gray-300 shadow-sm" style={{ left: contentRect.x, top: contentRect.y, width: contentRect.w, height: contentRect.h }} />}
+                {stickyNotes.map(note => <div key={note.id} className="absolute rounded-sm" style={{ left: note.x * SCALE, top: note.y * SCALE, width: (note.minimized ? 20 : 100) * SCALE, height: (note.minimized ? 20 : 80) * SCALE, backgroundColor: note.color, border: '1px solid rgba(0,0,0,0.1)' }} />)}
+                <div className="absolute border-2 border-red-500 bg-red-500/10 cursor-move" style={{ left: viewRect.x, top: viewRect.y, width: viewRect.w, height: viewRect.h, pointerEvents: 'none' }} />
             </div>
         </div>
     );
@@ -386,23 +341,18 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const [sourceName, setSourceName] = useState<string | null>(null);
     const [sourceType, setSourceType] = useState<'PDF' | 'IMAGE' | null>(null);
     const [sourceData, setSourceData] = useState<ArrayBuffer | string | null>(null);
-    
-    // PDF Specific
     const [pdfDocument, setPdfDocument] = useState<any>(null);
     const [pageNum, setPageNum] = useState(1);
     const [numPages, setNumPages] = useState(0);
     const [pdfError, setPdfError] = useState<string | null>(null);
     
-    // AI Explanation State
     const [aiLanguage, setAiLanguage] = useState("English");
     const [isAiModalOpen, setIsAiModalOpen] = useState(false);
     const [isExtracting, setIsExtracting] = useState(false);
 
-    // Content Dimensions
     const [contentDimensions, setContentDimensions] = useState<{ width: number, height: number } | null>(null);
     const hasAutoCentered = useRef(false);
 
-    // --- Infinite Canvas State ---
     const [viewport, setViewport] = useState<{ x: number, y: number, zoom: number }>(() => ({
         x: (window.innerWidth / 2) - (CANVAS_CENTER * INITIAL_ZOOM),
         y: (window.innerHeight / 2) - (CANVAS_CENTER * INITIAL_ZOOM),
@@ -413,7 +363,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const [isPanning, setIsPanning] = useState(false);
     const lastMousePos = useRef<{ x: number, y: number }>({ x: 0, y: 0 });
     
-    // --- Tools & Data ---
     const [tool, setTool] = useState<'pen' | 'highlighter' | 'eraser' | 'select' | 'note'>('select');
     const [color, setColor] = useState('#ef4444');
     const [annotations, setAnnotations] = useState<Record<number, AnnotationPath[]>>({});
@@ -422,30 +371,33 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
 
     const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
     
-    // --- History ---
+    // --- History Stack ---
     const [history, setHistory] = useState<Array<{annotations: Record<number, AnnotationPath[]>, stickyNotes: Record<number, StickyNote[]>, noteConnections: Record<number, NoteConnection[]>}>>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
 
-    // --- Interaction State ---
     const [dragTarget, setDragTarget] = useState<{ id: string, type: 'note' | 'anchor' | 'controlPoint' | 'connPoint', index?: number, parentId?: string } | null>(null);
     const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
 
-    // Linking States
-    const [linkingState, setLinkingState] = useState<{ sourceId: string, currentPos: { x: number, y: number } } | null>(null); // Note-to-Note OR Note-to-Anchor depending on drop
-    const [anchorLinkingState, setAnchorLinkingState] = useState<{ noteId: string, currentPos: { x: number, y: number } } | null>(null); // Note-to-Anchor (Explicit)
+    const [linkingState, setLinkingState] = useState<{ sourceId: string, currentPos: { x: number, y: number } } | null>(null);
+    const [anchorLinkingState, setAnchorLinkingState] = useState<{ noteId: string, currentPos: { x: number, y: number } } | null>(null);
     
-    // CACHED REFS FOR PERFORMANCE
     const dragStartOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const cachedCanvasRect = useRef<DOMRect | null>(null);
     const mousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-    const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null); 
     const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
     
-    // --- Context Menu State ---
-    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, type: 'connection' | 'canvas' | 'note', id?: string, connectionType?: 'noteConnection' | 'anchorConnection' } | null>(null);
+    // Context Menu State
+    const [contextMenu, setContextMenu] = useState<{ 
+        x: number, 
+        y: number, 
+        type: 'connection' | 'canvas' | 'note' | 'controlPoint', 
+        id?: string, 
+        connectionType?: 'noteConnection' | 'anchorConnection', 
+        pointIndex?: number,
+        clickPos?: { x: number, y: number } // Store click position for creating points
+    } | null>(null);
 
-    // --- UI State ---
     const [splitRatio, setSplitRatio] = useState(30);
     const splitContainerRef = useRef<HTMLDivElement>(null);
     const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -453,7 +405,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const isResizing = useRef(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // --- Refs for Drawing/Rendering ---
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
     const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
     const isDrawing = useRef(false);
@@ -461,60 +412,59 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const renderTaskRef = useRef<any>(null);
     const lastDrawPoint = useRef<{ x: number, y: number } | null>(null);
 
-    // --- Initialization ---
-    useEffect(() => {
-        loadIndex();
-    }, []);
+    useEffect(() => { loadIndex(); }, []);
 
-    // Scroll active tab into view
     useEffect(() => {
         const tabElement = document.getElementById(`tab-btn-${activeSectionId}`);
-        if (tabElement) {
-            tabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        }
+        if (tabElement) tabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     }, [activeSectionId]);
 
-    // Track Canvas Container Size
     useEffect(() => {
         if (!canvasContainerRef.current) return;
         const ro = new ResizeObserver(entries => {
-            for (let entry of entries) {
-                setContainerDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
-            }
+            for (let entry of entries) setContainerDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
         });
         ro.observe(canvasContainerRef.current);
         return () => ro.disconnect();
     }, []);
 
-    // Global Click Handler to close Context Menu and Deselect
     useEffect(() => {
         const handleGlobalClick = (e: MouseEvent) => {
-            if (contextMenu) {
-                setContextMenu(null);
-            }
-            // Only deselect if not clicking inside a note
+            if (contextMenu) setContextMenu(null);
             if (selectedNoteId) {
                 const target = e.target as HTMLElement;
-                if (!target.closest('[id^="sticky-note-"]')) {
-                    setSelectedNoteId(null);
-                }
+                if (!target.closest('[id^="sticky-note-"]')) setSelectedNoteId(null);
             }
         };
         window.addEventListener('mousedown', handleGlobalClick);
         return () => window.removeEventListener('mousedown', handleGlobalClick);
     }, [contextMenu, selectedNoteId]);
 
-    // --- Undo/Redo Logic ---
-    const pushHistory = (newAnnotations: any, newNotes: any, newConns: any) => {
-        const newHistory = history.slice(0, historyIndex + 1);
-        newHistory.push({
-            annotations: JSON.parse(JSON.stringify(newAnnotations)),
-            stickyNotes: JSON.parse(JSON.stringify(newNotes)),
-            noteConnections: JSON.parse(JSON.stringify(newConns))
+    // --- Unified History Management ---
+    const commitToHistory = (
+        newAnnotations: Record<number, AnnotationPath[]>, 
+        newNotes: Record<number, StickyNote[]>, 
+        newConns: Record<number, NoteConnection[]>
+    ) => {
+        setAnnotations(newAnnotations);
+        setStickyNotes(newNotes);
+        setNoteConnections(newConns);
+
+        setHistory(prevHistory => {
+            const newHistory = prevHistory.slice(0, historyIndex + 1);
+            newHistory.push({
+                annotations: JSON.parse(JSON.stringify(newAnnotations)),
+                stickyNotes: JSON.parse(JSON.stringify(newNotes)),
+                noteConnections: JSON.parse(JSON.stringify(newConns))
+            });
+            if (newHistory.length > MAX_HISTORY) newHistory.shift();
+            return newHistory;
         });
-        if (newHistory.length > 30) newHistory.shift(); 
-        setHistory(newHistory);
-        setHistoryIndex(newHistory.length - 1);
+        
+        setHistoryIndex(prev => {
+             const historyLength = Math.min(history.slice(0, historyIndex + 1).length + 1, MAX_HISTORY);
+             return historyLength - 1;
+        });
     };
 
     const undo = () => {
@@ -539,11 +489,23 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         }
     };
 
-    // --- Zoom & Pan ---
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                undo();
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                e.preventDefault();
+                redo();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [history, historyIndex]);
+
     useEffect(() => {
         const container = canvasContainerRef.current;
         if (!container) return;
-
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
             if (e.ctrlKey || e.metaKey) {
@@ -568,7 +530,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         return () => container.removeEventListener('wheel', handleWheel);
     }, []);
 
-    // --- Auto-Sync Sections ---
     useEffect(() => {
         if (!sourceType || numPages === 0) return;
         const existingSection = sections.find(s => s.pageLink === pageNum);
@@ -623,13 +584,14 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 const loadedNotes = data.stickyNotes || {};
                 const loadedConnections = data.noteConnections || {};
 
-                // Ensure backward compatibility
                 Object.values(loadedNotes).forEach(pageNotes => {
                     pageNotes.forEach(n => { if(!n.controlPoints) n.controlPoints = []; });
                 });
 
                 setAnnotations(loadedAnnotations); setStickyNotes(loadedNotes); setNoteConnections(loadedConnections);
-                setHistory([{ annotations: loadedAnnotations, stickyNotes: loadedNotes, noteConnections: loadedConnections }]); setHistoryIndex(0);
+                setHistory([{ annotations: loadedAnnotations, stickyNotes: loadedNotes, noteConnections: loadedConnections }]); 
+                setHistoryIndex(0);
+
                 setSourceName(data.sourceName || null); setSourceType(data.sourceType || null);
 
                 const dbData = await getFile(id);
@@ -833,12 +795,8 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const handleExport = async () => {
         if (!captureContainerRef.current) return;
         setIsLoading(true);
-
         try {
-             // Smart Crop: Calculate bounding box of all content
              let minX = CANVAS_CENTER, minY = CANVAS_CENTER, maxX = CANVAS_CENTER, maxY = CANVAS_CENTER;
-             
-             // Include content dimensions
              if (contentDimensions) {
                  const halfW = contentDimensions.width / 2;
                  const halfH = contentDimensions.height / 2;
@@ -847,8 +805,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                  maxX = Math.max(maxX, CANVAS_CENTER + halfW);
                  maxY = Math.max(maxY, CANVAS_CENTER + halfH);
              }
-
-             // Include notes
              const notes = stickyNotes[pageNum] || [];
              notes.forEach(note => {
                  minX = Math.min(minX, note.x);
@@ -856,18 +812,12 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                  maxX = Math.max(maxX, note.x + (note.minimized ? 40 : 220));
                  maxY = Math.max(maxY, note.y + (note.minimized ? 40 : 200));
              });
-
              const padding = 50;
              const cropX = minX - padding;
              const cropY = minY - padding;
              const cropWidth = (maxX - minX) + (padding * 2);
              const cropHeight = (maxY - minY) + (padding * 2);
-
-             // Wait a moment to ensure any pending renders are done
              await new Promise(r => setTimeout(r, 50));
-
-             // Use html-to-image on the container, applying the crop transform via the 'style' option.
-             // This avoids modifying the live DOM, preventing layout shifts/canvas clearing.
              const dataUrl = await htmlToImage.toPng(captureContainerRef.current, {
                  width: cropWidth,
                  height: cropHeight,
@@ -876,25 +826,18 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                      transformOrigin: 'top left',
                      width: `${cropWidth}px`,
                      height: `${cropHeight}px`,
-                     backgroundColor: '#e5e7eb' // Match canvas bg to avoid transparency issues
+                     backgroundColor: '#e5e7eb'
                  },
-                 pixelRatio: 2, // High res
+                 pixelRatio: 2,
                  skipAutoScale: true,
-                 fontEmbedCSS: '', // Fix for "Failed to read cssRules" / CORS errors
-                 cacheBust: true,  // Ensure fresh resource load
+                 fontEmbedCSS: '', 
+                 cacheBust: true,
              });
-
              const link = document.createElement('a');
              link.download = `Notepad_Page_${pageNum}.png`;
              link.href = dataUrl;
              link.click();
-             
-        } catch (err) {
-            console.error("Export failed", err);
-            alert("Export failed. Please try again.");
-        } finally {
-            setIsLoading(false);
-        }
+        } catch (err) { console.error("Export failed", err); alert("Export failed. Please try again."); } finally { setIsLoading(false); }
     };
 
     // --- STICKY NOTE LOGIC ---
@@ -926,8 +869,8 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         const newId = generateId();
         const newNote: StickyNote = { id: newId, x: noteX, y: noteY, text: '', color: NOTE_COLORS[0], anchor: anchor, minimized: false, page: pageNum, controlPoints: [] };
         const newNotes = { ...stickyNotes, [pageNum]: [...(stickyNotes[pageNum] || []), newNote] };
-        setStickyNotes(newNotes); 
-        pushHistory(annotations, newNotes, noteConnections); 
+        
+        commitToHistory(annotations, newNotes, noteConnections);
         setSelectedNoteId(newId);
         setTool('select');
     };
@@ -938,7 +881,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         if (!parent) return;
 
         const newId = generateId();
-        // Offset new note to the right
         const newX = parent.x + 300;
         const newY = parent.y;
 
@@ -958,9 +900,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         const newNotes = { ...stickyNotes, [pageNum]: [...pageNotes, newNote] };
         const newConns = { ...noteConnections, [pageNum]: [...(noteConnections[pageNum] || []), newConn] };
         
-        setStickyNotes(newNotes);
-        setNoteConnections(newConns);
-        pushHistory(annotations, newNotes, newConns);
+        commitToHistory(annotations, newNotes, newConns);
         setSelectedNoteId(newId);
     };
 
@@ -969,24 +909,27 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         const newPageNotes = pageNotes.map(n => n.id === id ? { ...n, ...updates } : n);
         const newNotes = { ...stickyNotes, [pageNum]: newPageNotes };
         setStickyNotes(newNotes);
-        if (!('text' in updates)) pushHistory(annotations, newNotes, noteConnections);
+    };
+
+    const handleNoteTextChange = (id: string, text: string) => {
+        const pageNotes = stickyNotes[pageNum] || [];
+        const newPageNotes = pageNotes.map(n => n.id === id ? { ...n, text } : n);
+        const newNotes = { ...stickyNotes, [pageNum]: newPageNotes };
+        setStickyNotes(newNotes);
     };
 
     const deleteNote = (id: string) => {
         if (!window.confirm("Are you sure you want to delete this note?")) return;
+        
         const pageNotes = stickyNotes[pageNum] || [];
         const newPageNotes = pageNotes.filter(n => n.id !== id);
         const newNotes = { ...stickyNotes, [pageNum]: newPageNotes };
         
-        // Cleanup connections
         const pageConns = noteConnections[pageNum] || [];
         const newPageConns = pageConns.filter(c => c.sourceId !== id && c.targetId !== id);
         const newConns = { ...noteConnections, [pageNum]: newPageConns };
 
-        setStickyNotes(newNotes);
-        setNoteConnections(newConns);
-        pushHistory(annotations, newNotes, newConns);
-        setDeleteConfirmId(null);
+        commitToHistory(annotations, newNotes, newConns);
         if (selectedNoteId === id) setSelectedNoteId(null);
     };
 
@@ -995,8 +938,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         const pageConns = noteConnections[pageNum] || [];
         const newPageConns = pageConns.filter(c => c.id !== connId);
         const newConns = { ...noteConnections, [pageNum]: newPageConns };
-        setNoteConnections(newConns);
-        pushHistory(annotations, stickyNotes, newConns);
+        commitToHistory(annotations, stickyNotes, newConns);
     }
 
     const startLinking = (e: React.MouseEvent, sourceId: string) => {
@@ -1015,7 +957,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const startAnchorLinking = (noteId: string) => {
         const rect = canvasContainerRef.current?.getBoundingClientRect();
         if(rect) {
-             // Start from the note center
              const note = stickyNotes[pageNum]?.find(n => n.id === noteId);
              if(note) {
                  const startX = note.x + (note.minimized ? 20 : 110);
@@ -1029,14 +970,30 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const handleConnectionContextMenu = (e: React.MouseEvent, id: string, type: 'noteConnection' | 'anchorConnection') => {
         e.preventDefault();
         e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, type: 'connection', id, connectionType: type });
+        
+        const rect = canvasContainerRef.current?.getBoundingClientRect();
+        let clickPos = undefined;
+        if (rect) {
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const canvasX = (mouseX - viewport.x) / viewport.zoom;
+            const canvasY = (mouseY - viewport.y) / viewport.zoom;
+            clickPos = { x: canvasX, y: canvasY };
+        }
+
+        setContextMenu({ 
+            x: e.clientX, 
+            y: e.clientY, 
+            type: 'connection', 
+            id, 
+            connectionType: type,
+            clickPos // Passed for accurate point creation
+        });
     };
 
     const handleContentContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
-        // Allow propagation if not stopping explicitly to ensure we can close menu if open, 
-        // but since we want to open a new one, we handle it here.
-        e.stopPropagation();
+        if (e.button !== 2) e.stopPropagation(); 
         setContextMenu({ x: e.clientX, y: e.clientY, type: 'canvas' });
     };
 
@@ -1044,73 +1001,119 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         e.preventDefault();
         e.stopPropagation();
         const note = stickyNotes[pageNum]?.find(n => n.id === noteId);
-        // Only allow context menu if note is NOT minimized (or if we want limited options, but requirement said 'nothing else will work')
-        if (note && note.minimized) {
-            // Requirement: "When minimized, nothing else will work." -> No context menu for delete/color.
-            return;
-        }
+        if (note && note.minimized) return;
         setContextMenu({ x: e.clientX, y: e.clientY, type: 'note', id: noteId });
+    };
+
+    const handleControlPointContextMenu = (index: number, e: React.MouseEvent, id: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, type: 'controlPoint', id, pointIndex: index });
     };
 
     const handleContextMenuAction = (action: string, payload?: any) => {
         if (!contextMenu) return;
-        const { id, type, x, y, connectionType } = contextMenu;
+        const { id, type, connectionType, pointIndex, clickPos } = contextMenu;
 
         if (type === 'canvas' && action === 'create_note') {
-             addNoteAt(x, y, true);
+             addNoteAt(contextMenu.x, contextMenu.y, true);
         } else if (type === 'note' && id) {
             if (action === 'delete') deleteNote(id);
-            else if (action === 'color') updateStickyNote(id, { color: payload });
+            else if (action === 'color') {
+                const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, color: payload } : n) };
+                commitToHistory(annotations, updatedNotes, noteConnections);
+            }
             else if (action === 'add_child') addChildNote(id);
             else if (action === 'add_anchor') startAnchorLinking(id);
         } else if (type === 'connection' && id) {
              if (connectionType === 'anchorConnection') {
-                 // Anchor Link: ID is Note ID
                  const note = stickyNotes[pageNum]?.find(n => n.id === id);
                  if (note) {
                      if (action === 'delete_link') {
                          if(window.confirm("Delete this anchor link?")) {
-                            updateStickyNote(id, { anchor: null, controlPoints: [] });
+                            const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, anchor: null, controlPoints: [] } : n) };
+                            commitToHistory(annotations, updatedNotes, noteConnections);
                          }
                      }
-                     else if (action === 'connection_color') updateStickyNote(id, { connectionColor: payload });
-                     else if (action === 'connection_style') updateStickyNote(id, { connectionStyle: payload });
+                     else if (action === 'connection_color') {
+                        const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, connectionColor: payload } : n) };
+                        commitToHistory(annotations, updatedNotes, noteConnections);
+                     }
+                     else if (action === 'connection_style') {
+                        const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, connectionStyle: payload } : n) };
+                        commitToHistory(annotations, updatedNotes, noteConnections);
+                     }
                      else if (action === 'add_point') {
                          const currentPoints = note.controlPoints || [];
-                         // Naive add point at midpoint for now, or just push one
-                         const ax = note.anchor ? (CANVAS_CENTER - (contentDimensions?.width||0)/2) + (note.anchor.x/100)*(contentDimensions?.width||0) : note.x;
-                         const ay = note.anchor ? (CANVAS_CENTER - (contentDimensions?.height||0)/2) + (note.anchor.y/100)*(contentDimensions?.height||0) : note.y;
-                         const midX = (ax + note.x) / 2;
-                         const midY = (ay + note.y) / 2;
-                         updateStickyNote(id, { controlPoints: [...currentPoints, { x: midX, y: midY }] });
+                         let newPoint;
+                         
+                         if (clickPos) {
+                             newPoint = clickPos;
+                         } else {
+                             const ax = note.anchor ? (CANVAS_CENTER - (contentDimensions?.width||0)/2) + (note.anchor.x/100)*(contentDimensions?.width||0) : note.x;
+                             const ay = note.anchor ? (CANVAS_CENTER - (contentDimensions?.height||0)/2) + (note.anchor.y/100)*(contentDimensions?.height||0) : note.y;
+                             const midX = (ax + note.x) / 2;
+                             const midY = (ay + note.y) / 2;
+                             newPoint = { x: midX, y: midY };
+                         }
+                         
+                         const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, controlPoints: [...currentPoints, newPoint] } : n) };
+                         commitToHistory(annotations, updatedNotes, noteConnections);
                      }
                  }
              } else if (connectionType === 'noteConnection') {
-                 // Note Connection
                  const pageConns = noteConnections[pageNum] || [];
                  const conn = pageConns.find(c => c.id === id);
                  if (conn) {
                      if (action === 'delete_link') deleteConnection(id);
                      else if (action === 'connection_color') {
                           const newConns = { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, color: payload } : c) };
-                          setNoteConnections(newConns);
+                          commitToHistory(annotations, stickyNotes, newConns);
                      }
                      else if (action === 'connection_style') {
                           const newConns = { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, style: payload } : c) };
-                          setNoteConnections(newConns);
+                          commitToHistory(annotations, stickyNotes, newConns);
                      }
                      else if (action === 'add_point') {
-                          const noteMap = new Map((stickyNotes[pageNum]||[]).map(n=>[n.id, n]));
-                          const s = noteMap.get(conn.sourceId);
-                          const t = noteMap.get(conn.targetId);
-                          if(s && t) {
-                              const midX = (s.x + t.x) / 2;
-                              const midY = (s.y + t.y) / 2;
-                              const newConns = { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, controlPoints: [...(c.controlPoints||[]), {x: midX, y: midY}] } : c) };
-                              setNoteConnections(newConns);
+                          let newPoint;
+                          if (clickPos) {
+                              newPoint = clickPos;
+                          } else {
+                              const noteMap = new Map((stickyNotes[pageNum]||[]).map(n=>[n.id, n]));
+                              const s = noteMap.get(conn.sourceId);
+                              const t = noteMap.get(conn.targetId);
+                              if(s && t) {
+                                  const midX = (s.x + t.x) / 2;
+                                  const midY = (s.y + t.y) / 2;
+                                  newPoint = { x: midX, y: midY };
+                              } else {
+                                  newPoint = { x: 0, y: 0 };
+                              }
                           }
+
+                          const newConns = { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, controlPoints: [...(c.controlPoints||[]), newPoint] } : c) };
+                          commitToHistory(annotations, stickyNotes, newConns);
                      }
                  }
+             }
+        } else if (type === 'controlPoint' && id && pointIndex !== undefined) {
+             if (action === 'delete_point') {
+                  const note = stickyNotes[pageNum]?.find(n => n.id === id);
+                  if (note) {
+                      const newPoints = [...(note.controlPoints || [])];
+                      newPoints.splice(pointIndex, 1);
+                      const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, controlPoints: newPoints } : n) };
+                      commitToHistory(annotations, updatedNotes, noteConnections);
+                  } else {
+                      const pageConns = noteConnections[pageNum] || [];
+                      const conn = pageConns.find(c => c.id === id);
+                      if (conn && conn.controlPoints) {
+                          const newPoints = [...conn.controlPoints];
+                          newPoints.splice(pointIndex, 1);
+                          const newConns = { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, controlPoints: newPoints } : c) };
+                          commitToHistory(annotations, stickyNotes, newConns);
+                      }
+                  }
              }
         }
         setContextMenu(null);
@@ -1122,7 +1125,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         target: { id: string, type: 'note' | 'anchor' | 'controlPoint' | 'connPoint', index?: number, parentId?: string }, 
         elementPos: { x: number, y: number }
     ) => {
-        // VIGOROUSLY STOP PROPAGATION
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation();
         e.preventDefault(); 
@@ -1173,7 +1175,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         if (dragTarget) e.preventDefault();
     };
 
-    // Zero-Latency Drag Loop
     useEffect(() => {
         if (!dragTarget) return;
         let animationFrameId: number;
@@ -1191,7 +1192,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 
                 const dragOffset = dragStartOffset.current as { x: number, y: number };
 
-                // --- NOTE DRAGGING ---
                 if (dragTarget.type === 'note' || dragTarget.type === 'anchor' || dragTarget.type === 'controlPoint') {
                     setStickyNotes(prevNotes => {
                          const pageNotes = prevNotes[pageNum] || [];
@@ -1207,7 +1207,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 const newY = canvasY - dragOffset.y;
                                 const contentW = contentDimensions.width; const contentH = contentDimensions.height;
                                 const pdfTopLeftX = CANVAS_CENTER - contentW / 2; const pdfTopLeftY = CANVAS_CENTER - contentH / 2;
-                                // Simple clamp for percentage calculation
                                 const anchorX = Math.max(0, Math.min(100, ((newX - pdfTopLeftX) / contentW) * 100));
                                 const anchorY = Math.max(0, Math.min(100, ((newY - pdfTopLeftY) / contentH) * 100));
                                 
@@ -1218,7 +1217,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 if(n.controlPoints[dragTarget.index]) {
                                    if (n.controlPoints[dragTarget.index].x !== newX || n.controlPoints[dragTarget.index].y !== newY) {
                                        changed = true;
-                                       // Mutate array copy for speed in loop, React state update handles ref change
                                        const newPts = [...n.controlPoints];
                                        newPts[dragTarget.index] = { x: newX, y: newY };
                                        n.controlPoints = newPts;
@@ -1227,12 +1225,10 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                              }
                              return n;
                          });
-                         // Create new object ref to force re-render
                          return changed ? { ...prevNotes, [pageNum]: newPageNotes } : prevNotes;
                      });
                 }
                 
-                // --- CONNECTION CONTROL POINT DRAGGING ---
                 if (dragTarget.type === 'connPoint' && dragTarget.index !== undefined) {
                     setNoteConnections(prevConns => {
                         const pageConns = prevConns[pageNum] || [];
@@ -1264,36 +1260,25 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const handleCanvasMouseUp = (e: React.MouseEvent) => { 
         if (isPanning) setIsPanning(false); 
         
-        // Smart Linking Logic (Handles both Note Connection and Anchor Creation)
         if (linkingState) {
             const el = document.elementFromPoint(e.clientX, e.clientY);
             const noteEl = el?.closest('[id^="sticky-note-"]');
             
             if (noteEl) {
-                // Scenario: Dropped ON another note -> Create Connection
                 const targetId = noteEl.id.replace('sticky-note-', '');
                 if (targetId !== linkingState.sourceId) {
-                    // Check if already connected to prevent duplicates
                     const existingConn = noteConnections[pageNum]?.find(c => 
                         (c.sourceId === linkingState.sourceId && c.targetId === targetId) || 
                         (c.sourceId === targetId && c.targetId === linkingState.sourceId)
                     );
                     
                     if (!existingConn) {
-                        const newConn: NoteConnection = {
-                            id: generateConnId(),
-                            sourceId: linkingState.sourceId,
-                            targetId: targetId,
-                            color: '#cbd5e1',
-                            style: 'curved'
-                        };
+                        const newConn: NoteConnection = { id: generateConnId(), sourceId: linkingState.sourceId, targetId: targetId, color: '#cbd5e1', style: 'curved' };
                         const newConns = { ...noteConnections, [pageNum]: [...(noteConnections[pageNum] || []), newConn] };
-                        setNoteConnections(newConns);
-                        pushHistory(annotations, stickyNotes, newConns);
+                        commitToHistory(annotations, stickyNotes, newConns);
                     }
                 }
             } else if (contentDimensions) {
-                // Scenario: Dropped ON Canvas/PDF -> Create Anchor
                 if (canvasContainerRef.current) {
                     const rect = canvasContainerRef.current.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
@@ -1306,22 +1291,19 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                     const topLeftX = CANVAS_CENTER - contentW / 2;
                     const topLeftY = CANVAS_CENTER - contentH / 2;
 
-                    // Check bounds (allow small margin around PDF for anchoring too)
                     if (canvasX >= topLeftX - 50 && canvasX <= topLeftX + contentW + 50 && 
                         canvasY >= topLeftY - 50 && canvasY <= topLeftY + contentH + 50) {
                         
-                        // Clamp to 0-100 relative
                         const anchorX = Math.max(0, Math.min(100, ((canvasX - topLeftX) / contentW) * 100));
                         const anchorY = Math.max(0, Math.min(100, ((canvasY - topLeftY) / contentH) * 100));
-
-                        updateStickyNote(linkingState.sourceId, { anchor: { x: anchorX, y: anchorY } });
+                        const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === linkingState.sourceId ? { ...n, anchor: { x: anchorX, y: anchorY } } : n) };
+                        commitToHistory(annotations, updatedNotes, noteConnections);
                     }
                 }
             }
             setLinkingState(null);
         }
 
-        // Explicit Anchor Linking (Right click menu)
         if (anchorLinkingState && contentDimensions) {
              if (canvasContainerRef.current) {
                 const rect = canvasContainerRef.current.getBoundingClientRect();
@@ -1341,20 +1323,21 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                     const anchorX = Math.max(0, Math.min(100, ((canvasX - topLeftX) / contentW) * 100));
                     const anchorY = Math.max(0, Math.min(100, ((canvasY - topLeftY) / contentH) * 100));
 
-                    updateStickyNote(anchorLinkingState.noteId, { anchor: { x: anchorX, y: anchorY } });
+                    const updatedNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === anchorLinkingState.noteId ? { ...n, anchor: { x: anchorX, y: anchorY } } : n) };
+                    commitToHistory(annotations, updatedNotes, noteConnections);
                 }
              }
              setAnchorLinkingState(null);
         }
 
         if (dragTarget) { 
-            pushHistory(annotations, stickyNotes, noteConnections); 
+            // Commit to history on drag end
+            commitToHistory(annotations, stickyNotes, noteConnections);
             setDragTarget(null); 
             cachedCanvasRect.current = null; 
         } 
     };
 
-    // Render logic using useMemo to prevent re-calculation on every frame
     const connectionElements = useMemo(() => {
         const notes = (stickyNotes[pageNum] || []) as StickyNote[];
         const conns = (noteConnections[pageNum] || []) as NoteConnection[];
@@ -1367,7 +1350,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
 
         const elements = [];
 
-        // 1. ANCHOR CONNECTIONS
         notes.forEach(note => {
             if (!note.anchor || contentW <= 0) return;
             const ax = topLeftX + (note.anchor.x / 100) * contentW;
@@ -1376,7 +1358,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             const ny = note.y + 20;
             const points = [{ x: ax, y: ay }, ...(note.controlPoints || []), { x: nx, y: ny }];
             
-            // Check if this connection is involved in a drag to keep hover state
             const isDraggingThis = dragTarget && dragTarget.id === note.id && dragTarget.type === 'controlPoint';
 
             elements.push(
@@ -1394,24 +1375,23 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                     onAnchorDrag={(e) => handleElementMouseDown(e, { id: note.id, type: 'anchor' }, { x: ax, y: ay })}
                     controlPoints={note.controlPoints}
                     onControlPointDrag={(idx, e, pt) => handleElementMouseDown(e, { id: note.id, type: 'controlPoint', index: idx }, pt)}
+                    onControlPointContextMenu={(idx, e) => handleControlPointContextMenu(idx, e, note.id)}
                 />
             );
         });
 
-        // 2. NOTE CONNECTIONS
         conns.forEach(conn => {
             const src = noteMap.get(conn.sourceId);
             const tgt = noteMap.get(conn.targetId);
             if (!src || !tgt) return;
 
             const sx = src.x + (src.minimized ? 20 : 110);
-            const sy = src.y + (src.minimized ? 20 : 60); // Roughly center
+            const sy = src.y + (src.minimized ? 20 : 60);
             const tx = tgt.x + (tgt.minimized ? 20 : 110);
             const ty = tgt.y + (tgt.minimized ? 20 : 60);
 
             const points = [{ x: sx, y: sy }, ...(conn.controlPoints || []), { x: tx, y: ty }];
             
-            // Check drag state to prevent flicker
             const isDraggingThis = dragTarget && dragTarget.id === conn.id;
 
             elements.push(
@@ -1425,11 +1405,11 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                     onContextMenu={(e) => handleConnectionContextMenu(e, conn.id, 'noteConnection')}
                     controlPoints={conn.controlPoints}
                     onControlPointDrag={(idx, e, pt) => handleElementMouseDown(e, { id: conn.id, type: 'connPoint', index: idx }, pt)}
+                    onControlPointContextMenu={(idx, e) => handleControlPointContextMenu(idx, e, conn.id)}
                 />
             );
         });
 
-        // 3. TEMP LINKING LINE (Combined Note/Anchor Logic)
         if (linkingState) {
              const src = noteMap.get(linkingState.sourceId);
              if (src) {
@@ -1446,7 +1426,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
              }
         }
 
-        // 4. TEMP ANCHOR LINK (Explicit)
         if (anchorLinkingState) {
              const src = noteMap.get(anchorLinkingState.noteId);
              if (src) {
@@ -1465,9 +1444,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         return elements;
     }, [stickyNotes, noteConnections, pageNum, contentDimensions, hoveredConnectionId, linkingState, anchorLinkingState, handleElementMouseDown, dragTarget]);
 
-    // ... (rest of the component logic) ...
-
-    // --- AI Feature State ---
     const extractCurrentPageText = async () => {
         if (!pdfDocument || sourceType !== 'PDF') return null;
         try {
@@ -1502,18 +1478,15 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         console.log("Extracted Text Preview:", text.substring(0, 100) + "...");
     };
 
-    // --- CANVAS HANDLERS ---
     const handleCanvasMouseDown = (e: React.MouseEvent) => {
-        if (dragTarget) return; // Don't pan if dragging
+        if (dragTarget) return; 
         
-        // Panning Logic
         if (e.button === 1 || tool === 'select' || (e.button === 0 && (e.ctrlKey || e.metaKey))) {
              setIsPanning(true);
              lastMousePos.current = { x: e.clientX, y: e.clientY };
              return;
         }
         
-        // Note Tool
         if (tool === 'note') {
              addNoteAt(e.clientX, e.clientY, false);
         }
@@ -1542,14 +1515,12 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     };
 
     const handleContentMouseDown = (e: React.MouseEvent) => {
-        // Stop default context menu on content if drawing, but allow if just right click for popup
         if (e.button !== 2) e.stopPropagation(); 
 
         if (tool === 'select' || tool === 'note') {
              if (tool === 'note') {
                  addNoteAt(e.clientX, e.clientY, true); 
              } else {
-                 // Delegate to canvas handler for panning
                  setIsPanning(true);
                  lastMousePos.current = { x: e.clientX, y: e.clientY };
              }
@@ -1635,14 +1606,13 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         if (isDrawing.current) {
             isDrawing.current = false;
             if (tool === 'eraser') {
-                pushHistory(annotations, stickyNotes, noteConnections);
+                commitToHistory(annotations, stickyNotes, noteConnections);
             } else if (currentPath.current) {
                 const newAnnotations = {
                     ...annotations,
                     [pageNum]: [...(annotations[pageNum] || []), currentPath.current]
                 };
-                setAnnotations(newAnnotations);
-                pushHistory(newAnnotations, stickyNotes, noteConnections);
+                commitToHistory(newAnnotations, stickyNotes, noteConnections);
                 currentPath.current = null;
             }
             lastDrawPoint.current = null;
@@ -1655,9 +1625,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
 
     return (
         <div className="flex h-screen bg-[#f0f4f8] overflow-hidden font-sans text-gray-800">
-             {/* ... Sidebar and Topbar preserved ... */}
              <div className={`${isSidebarOpen ? 'w-64' : 'w-0'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300 overflow-hidden shrink-0 relative z-40 shadow-xl`}>
-                {/* ... Sidebar Content ... */}
                 <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                     <h2 className="font-bold text-gray-700 flex items-center gap-2 text-sm uppercase tracking-wider"><Icon.Notebook size={16} className="text-indigo-500"/> Library</h2>
                     <button onClick={() => setIsSidebarOpen(false)} className="text-gray-400 hover:text-gray-600"><Icon.ChevronLeft size={18} /></button>
@@ -1704,7 +1672,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             {!isSidebarOpen && <button onClick={() => setIsSidebarOpen(true)} className="absolute top-4 left-4 z-30 p-2 bg-white shadow-md rounded-lg text-gray-500 hover:text-blue-600"><Icon.PanelLeft size={20} /></button>}
 
             <div className="flex-1 flex flex-col min-w-0 relative">
-                {/* TOP BAR */}
                 <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 shadow-sm z-20">
                     <div className="flex items-center gap-3 flex-1">
                         <input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={saveCurrentState} className="font-display font-bold text-xl text-gray-800 bg-transparent outline-none border-b border-transparent hover:border-gray-300 focus:border-indigo-500 transition-all px-1 w-full max-w-md" />
@@ -1718,7 +1685,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 </div>
 
                 <div ref={splitContainerRef} className="flex-1 flex overflow-hidden relative">
-                    {/* LEFT: TEXT EDITOR */}
                     <div className="flex flex-col border-r border-gray-200 bg-white relative z-0 h-full" style={{ width: `${splitRatio}%` }}>
                         <div className="flex overflow-x-auto border-b border-gray-200 custom-scrollbar bg-gray-50 p-1 gap-1">
                             {sections.map(section => (
@@ -1727,7 +1693,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                     id={`tab-btn-${section.id}`} 
                                     onClick={() => {
                                         setActiveSectionId(section.id);
-                                        // Sync PDF page if linked
                                         if (section.pageLink && sourceType === 'PDF') {
                                             setPageNum(section.pageLink);
                                         }
@@ -1741,7 +1706,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             <button onClick={handleAddSection} className="px-2 py-1 text-gray-400 hover:text-indigo-600 hover:bg-gray-200 rounded"><Icon.Plus size={16} /></button>
                         </div>
                         
-                        {/* AI TOOLBAR - NEW */}
                         <div className="flex items-center gap-2 p-2 border-b border-gray-200 bg-gray-50/50">
                             <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-1 shadow-sm">
                                 <Icon.Globe size={14} className="text-gray-400" />
@@ -1767,16 +1731,14 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             <textarea value={activeSection?.content || ''} onChange={(e) => handleUpdateSection(activeSectionId, { content: e.target.value })} className="w-full h-full resize-none outline-none text-base leading-loose text-slate-800 placeholder-slate-300 custom-scrollbar bg-transparent font-medium p-8" placeholder="Start typing your notes here..." spellCheck={false} />
                         </div>
                     </div>
-                    {/* Resizer */}
+                    
                     <div className="w-1.5 hover:w-2 bg-transparent hover:bg-blue-400 cursor-col-resize z-50 transition-all flex items-center justify-center group absolute h-full -ml-0.5" style={{ left: `${splitRatio}%` }} onMouseDown={(e) => { e.preventDefault(); isResizing.current = true; const handleMove = (ev: MouseEvent) => { if (!splitContainerRef.current) return; const rect = splitContainerRef.current.getBoundingClientRect(); const w = ((ev.clientX - rect.left) / rect.width) * 100; setSplitRatio(Math.max(20, Math.min(80, w))); }; const handleUp = () => { isResizing.current = false; document.removeEventListener('mousemove', handleMove); document.removeEventListener('mouseup', handleUp); }; document.addEventListener('mousemove', handleMove); document.addEventListener('mouseup', handleUp); }}>
                         <div className="w-[1px] h-full bg-gray-200 group-hover:bg-transparent" />
                     </div>
 
-                    {/* RIGHT: INFINITE CANVAS */}
                     <div 
                         className={`flex-1 flex flex-col bg-[#e5e7eb] relative min-w-0 h-full overflow-hidden ${dragTarget ? 'cursor-grabbing' : ''}`}
                     >
-                        {/* CANVAS TOOLBAR */}
                         <div className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-3 shrink-0 z-20 shadow-sm relative">
                             <div className="flex items-center gap-1">
                                 <button onClick={() => setPageNum(p => Math.max(1, p - 1))} disabled={pageNum<=1} className="p-1.5 hover:bg-gray-100 rounded disabled:opacity-30"><Icon.ChevronLeft size={16}/></button>
@@ -1808,7 +1770,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             </div>
                         </div>
 
-                        {/* CANVAS AREA */}
                         <div 
                             ref={canvasContainerRef}
                             className={`flex-1 relative overflow-hidden ${isPanning ? 'cursor-grabbing' : (tool === 'select' ? 'cursor-grab' : 'cursor-crosshair')}`}
@@ -1830,7 +1791,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 }}
                                 className="bg-transparent"
                             >
-                                {/* CONTENT FRAME */}
                                 <div 
                                     className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-2xl bg-white"
                                     style={{
@@ -1860,12 +1820,10 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                     )}
                                 </div>
 
-                                {/* CONNECTIONS LAYER */}
                                 <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 20 }}>
                                     {connectionElements}
                                 </svg>
                                 
-                                {/* NOTE CARDS LAYER */}
                                 {(stickyNotes[pageNum] as StickyNote[] || []).map(note => (
                                     <div
                                         key={note.id}
@@ -1879,15 +1837,13 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                             width: note.minimized ? '40px' : '220px', 
                                             height: note.minimized ? '40px' : 'auto', 
                                             backgroundColor: note.color, 
-                                            // Ensure transitions for positioning are OFF for instant dragging
                                             transitionProperty: 'box-shadow, transform, background-color', 
                                             transitionDuration: '200ms'
                                         }}
-                                        onMouseDown={(e) => e.stopPropagation()} // Prevent bubble up
+                                        onMouseDown={(e) => e.stopPropagation()} 
                                         onClick={(e) => { e.stopPropagation(); setSelectedNoteId(note.id); }}
                                         onContextMenu={(e) => handleNoteContextMenu(e, note.id)}
                                     >
-                                        {/* HEADER (Draggable) */}
                                         <div 
                                             className="h-7 w-full bg-black/5 flex items-center justify-between px-1 cursor-move border-b border-black/5" 
                                             onMouseDown={(e) => handleNoteMouseDown(e, note)}
@@ -1896,7 +1852,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                             <div className="flex gap-1 pl-1 items-center">
                                                 {note.minimized && <div className="w-2 h-2 rounded-full bg-gray-400" />}
                                                 
-                                                {/* Custom Color Input - Only visible when NOT minimized */}
                                                 {!note.minimized && (
                                                     <div className="flex gap-1 items-center" onMouseDown={e => e.stopPropagation()}>
                                                         {NOTE_COLORS.slice(0, 3).map(c => (
@@ -1915,10 +1870,8 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                                 )}
                                             </div>
                                             
-                                            {/* Window Controls */}
                                             <div className="flex gap-1 items-center" onMouseDown={e => e.stopPropagation()}>
                                                 {note.minimized ? (
-                                                     // Only EXPAND button when minimized
                                                      <button 
                                                         onClick={(e) => { e.stopPropagation(); updateStickyNote(note.id, { minimized: false }); }}
                                                         className="p-0.5 hover:bg-blue-100 hover:text-blue-600 rounded text-gray-500"
@@ -1927,7 +1880,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                                         <Icon.Plus size={10} />
                                                     </button>
                                                 ) : (
-                                                    // Full controls when expanded
                                                     <>
                                                         <button 
                                                             onClick={(e) => { e.stopPropagation(); updateStickyNote(note.id, { minimized: true }); }}
@@ -1937,7 +1889,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                                             <Icon.Minus size={10} />
                                                         </button>
                                                         <button 
-                                                            onClick={(e) => { e.stopPropagation(); if(window.confirm('Delete?')) deleteNote(note.id); }} 
+                                                            onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} 
                                                             className="p-0.5 hover:bg-red-100 hover:text-red-500 rounded text-gray-400"
                                                         >
                                                             <Icon.Close size={10} />
@@ -1947,10 +1899,8 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                             </div>
                                         </div>
                                         
-                                        {/* BODY CONTENT - Only visible when NOT minimized */}
                                         {!note.minimized && (
                                             <>
-                                                {/* HOVER ACTIONS (Side Buttons) - Show on Hover OR Selection */}
                                                 <div className={`absolute -right-8 top-0 flex flex-col gap-1 transition-opacity pointer-events-auto ${selectedNoteId === note.id ? 'opacity-100' : 'opacity-0 group-hover/note:opacity-100'}`}>
                                                     <button 
                                                         className="w-6 h-6 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50"
@@ -1972,7 +1922,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                                     className="w-full h-auto min-h-[120px] p-3 bg-transparent text-sm resize-none outline-none font-medium text-gray-800 custom-scrollbar leading-relaxed" 
                                                     value={note.text} 
                                                     onChange={(e) => {
-                                                        updateStickyNote(note.id, { text: e.target.value });
+                                                        handleNoteTextChange(note.id, e.target.value);
                                                         e.target.style.height = 'auto';
                                                         e.target.style.height = e.target.scrollHeight + 'px';
                                                     }}
@@ -1987,7 +1937,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             </div>
                         </div>
                     </div>
-                    {/* MINIMAP */}
                     <NotepadMinimap 
                         viewport={viewport} 
                         setViewport={setViewport} 
@@ -1998,12 +1947,11 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 </div>
             </div>
             
-            {/* Context Menu */}
             {contextMenu && (
                 <div 
                     className="fixed z-[100] bg-white border border-gray-200 shadow-xl rounded-lg p-1 text-sm flex flex-col min-w-[200px] animate-pop origin-top-left"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
-                    onMouseDown={(e) => e.stopPropagation()} // Prevent global close when clicking inside
+                    onMouseDown={(e) => e.stopPropagation()} 
                 >
                     {contextMenu.type === 'canvas' ? (
                          <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('create_note')}>
@@ -2029,6 +1977,10 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 <Icon.Trash size={14} /> Delete Note
                             </button>
                         </>
+                    ) : contextMenu.type === 'controlPoint' && contextMenu.id ? (
+                         <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('delete_point')}>
+                            <Icon.Trash size={14} /> Delete Control Point
+                        </button>
                     ) : (
                         <>
                             <div className="p-2 border-b border-gray-100">
@@ -2047,7 +1999,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                     <button onClick={() => handleContextMenuAction('connection_style', 'orthogonal')} className="flex-1 py-1 bg-gray-50 hover:bg-gray-100 rounded border border-gray-100 text-[10px] font-bold text-gray-600">90°</button>
                                 </div>
                             </div>
-                            {/* ADD CONTROL POINT OPTION */}
                             {(contextMenu.connectionType === 'noteConnection' || contextMenu.connectionType === 'anchorConnection') && (
                                 <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium rounded flex items-center gap-2 mt-1" onClick={() => handleContextMenuAction('add_point')}>
                                     <Icon.Plus size={14} /> Add Control Point
