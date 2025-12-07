@@ -4,8 +4,9 @@ import { Icon } from './Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import { saveFile, getFile } from '../services/localDb';
 
-// Set worker source for PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs`;
+// Set worker source for PDF.js dynamically to prevent version mismatch
+// This ensures the worker script version matches the library version exactly
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 interface NotepadPanelProps {
     isOpen: boolean;
@@ -97,16 +98,23 @@ export const NotepadPanel: React.FC<NotepadPanelProps> = ({ isOpen, onClose, cur
         setActiveTab('PDF');
     };
 
-    const loadPdfData = async (data: ArrayBuffer) => {
+    const loadPdfData = async (buffer: ArrayBuffer) => {
         try {
-            const loadingTask = pdfjsLib.getDocument({ data, cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.449/cmaps/`, cMapPacked: true });
+            // Convert ArrayBuffer to Uint8Array for PDF.js compatibility
+            const data = new Uint8Array(buffer);
+            
+            const loadingTask = pdfjsLib.getDocument({ 
+                data, 
+                cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`, 
+                cMapPacked: true 
+            });
             const pdf = await loadingTask.promise;
             setPdfDocument(pdf);
             setNumPages(pdf.numPages);
             setPageNum(1);
-        } catch (e) {
-            console.error("PDF Load Error", e);
-            alert("Failed to load PDF.");
+        } catch (e: any) {
+            console.error("PDF Load Error:", e);
+            alert(`Failed to load PDF: ${e.message || 'Unknown error'}`);
         }
     };
 
@@ -380,14 +388,6 @@ export const NotepadPanel: React.FC<NotepadPanelProps> = ({ isOpen, onClose, cur
                                             className="absolute inset-0 cursor-text"
                                             draggable
                                             onDragStart={(e) => {
-                                                // If text selected, standard drag. If not, maybe capture image?
-                                                // For now, let standard selection work if PDF renders text layer.
-                                                // PDF.js canvas doesn't have text layer by default here.
-                                                // We rely on user selecting text if we implement text layer, 
-                                                // OR we implement screenshot drag.
-                                                // For "Phase 1", let's assume text selection works in "Notes" tab perfectly.
-                                                // For PDF, we might need OCR or TextLayer. 
-                                                // Let's keep it simple: "Notes" tab is primary for text drag.
                                                 e.dataTransfer.setData('text/plain', `Ref: Page ${pageNum}`);
                                                 e.dataTransfer.effectAllowed = 'copy';
                                             }}
