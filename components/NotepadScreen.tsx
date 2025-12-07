@@ -175,11 +175,11 @@ const ConnectionRenderer: React.FC<{
                 d={pathData} 
                 fill="none" 
                 stroke="transparent" 
-                strokeWidth={20} 
+                strokeWidth={30} 
                 className="cursor-pointer" 
             />
 
-            {/* VISIBLE PATH */}
+            {/* VISIBLE PATH - NO TRANSITION for 1:1 sync */}
             <path 
                 d={pathData} 
                 fill="none" 
@@ -187,14 +187,21 @@ const ConnectionRenderer: React.FC<{
                 strokeWidth={isHovered ? 4 : 2} 
                 strokeDasharray={style === 'straight' ? '5,5' : 'none'} 
                 strokeLinecap="round" 
-                className="transition-all duration-200 pointer-events-none" 
+                className="pointer-events-none transition-colors duration-200" 
             />
 
             {/* ANCHOR POINT */}
             {renderAnchors && anchorPos && (
-                <g className="cursor-move" onMouseDown={onAnchorDrag}>
-                    {/* Invisible Hit Circle */}
-                    <circle cx={anchorPos.x} cy={anchorPos.y} r={15} fill="transparent" />
+                <g 
+                    className="cursor-move" 
+                    onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault(); // Critical to stop canvas pan
+                        onAnchorDrag && onAnchorDrag(e);
+                    }}
+                >
+                    {/* Invisible Hit Circle - Larger to prevent mouse slip */}
+                    <circle cx={anchorPos.x} cy={anchorPos.y} r={24} fill="transparent" />
                     {/* Visible Anchor */}
                     <circle cx={anchorPos.x} cy={anchorPos.y} r={6} fill={color} stroke="white" strokeWidth={2} className={`transition-transform duration-200 ${isHovered ? 'scale-125' : ''}`} pointerEvents="none" />
                 </g>
@@ -202,15 +209,23 @@ const ConnectionRenderer: React.FC<{
 
             {/* CONTROL POINTS */}
             {controlPoints && controlPoints.length > 0 && controlPoints.map((cp, idx) => (
-                 <g key={idx} className="cursor-move" onMouseDown={(e) => onControlPointDrag && onControlPointDrag(idx, e, cp)}>
-                    {/* Invisible Hit Circle */}
-                    <circle cx={cp.x} cy={cp.y} r={12} fill="transparent" />
+                 <g 
+                    key={idx} 
+                    className="cursor-move" 
+                    onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault(); // Critical
+                        onControlPointDrag && onControlPointDrag(idx, e, cp);
+                    }}
+                 >
+                    {/* Invisible Hit Circle - Larger */}
+                    <circle cx={cp.x} cy={cp.y} r={20} fill="transparent" />
                     {/* Visible Control Point */}
                     <circle cx={cp.x} cy={cp.y} r={5} fill="white" stroke={color} strokeWidth={2} className={`transition-transform duration-200 ${isHovered ? 'scale-125' : ''}`} pointerEvents="none" />
                  </g>
             ))}
             
-            {/* Show ghost control points on hover if none exist (Interaction Hint) */}
+            {/* Show ghost control points hint when hovering */}
             {isHovered && (!controlPoints || controlPoints.length === 0) && (
                 <path d={pathData} stroke="transparent" fill="none" strokeWidth={10} className="cursor-pointer" />
             )}
@@ -1107,7 +1122,11 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         target: { id: string, type: 'note' | 'anchor' | 'controlPoint' | 'connPoint', index?: number, parentId?: string }, 
         elementPos: { x: number, y: number }
     ) => {
+        // VIGOROUSLY STOP PROPAGATION
         e.stopPropagation();
+        e.nativeEvent.stopImmediatePropagation();
+        e.preventDefault(); 
+        
         mousePosRef.current = { x: e.clientX, y: e.clientY };
         
         if (canvasContainerRef.current) {
@@ -1182,7 +1201,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                              if (dragTarget.type === 'note') {
                                 const newX = canvasX - dragOffset.x;
                                 const newY = canvasY - dragOffset.y;
-                                if (n.x !== newX || n.y !== newY) { changed = true; return { ...n, x: newX, y: newY }; }
+                                if (n.x !== newX || n.y !== newY) { changed = true; n.x = newX; n.y = newY; }
                              } else if (dragTarget.type === 'anchor' && contentDimensions) {
                                 const newX = canvasX - dragOffset.x;
                                 const newY = canvasY - dragOffset.y;
@@ -1192,15 +1211,23 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 const anchorX = Math.max(0, Math.min(100, ((newX - pdfTopLeftX) / contentW) * 100));
                                 const anchorY = Math.max(0, Math.min(100, ((newY - pdfTopLeftY) / contentH) * 100));
                                 
-                                if (!n.anchor || n.anchor.x !== anchorX || n.anchor.y !== anchorY) { changed = true; return { ...n, anchor: { x: anchorX, y: anchorY } }; }
+                                if (!n.anchor || n.anchor.x !== anchorX || n.anchor.y !== anchorY) { changed = true; n.anchor = { x: anchorX, y: anchorY }; }
                              } else if (dragTarget.type === 'controlPoint' && dragTarget.index !== undefined) {
                                 const newX = canvasX - dragOffset.x;
                                 const newY = canvasY - dragOffset.y;
-                                const newPoints = [...n.controlPoints];
-                                if (newPoints[dragTarget.index]) { changed = true; newPoints[dragTarget.index] = { x: newX, y: newY }; return { ...n, controlPoints: newPoints }; }
+                                if(n.controlPoints[dragTarget.index]) {
+                                   if (n.controlPoints[dragTarget.index].x !== newX || n.controlPoints[dragTarget.index].y !== newY) {
+                                       changed = true;
+                                       // Mutate array copy for speed in loop, React state update handles ref change
+                                       const newPts = [...n.controlPoints];
+                                       newPts[dragTarget.index] = { x: newX, y: newY };
+                                       n.controlPoints = newPts;
+                                   }
+                                }
                              }
                              return n;
                          });
+                         // Create new object ref to force re-render
                          return changed ? { ...prevNotes, [pageNum]: newPageNotes } : prevNotes;
                      });
                 }
@@ -1214,8 +1241,14 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                              if (c.id !== dragTarget.id) return c;
                              const newX = canvasX - dragOffset.x;
                              const newY = canvasY - dragOffset.y;
-                             const newPoints = [...(c.controlPoints || [])];
-                             if (newPoints[dragTarget.index!]) { changed = true; newPoints[dragTarget.index!] = { x: newX, y: newY }; return { ...c, controlPoints: newPoints }; }
+                             if(c.controlPoints && c.controlPoints[dragTarget.index!]) {
+                                 if (c.controlPoints[dragTarget.index!].x !== newX || c.controlPoints[dragTarget.index!].y !== newY) {
+                                    changed = true;
+                                    const newPts = [...c.controlPoints];
+                                    newPts[dragTarget.index!] = { x: newX, y: newY };
+                                    c.controlPoints = newPts;
+                                 }
+                             }
                              return c;
                         });
                         return changed ? { ...prevConns, [pageNum]: newPageConns } : prevConns;
@@ -1343,13 +1376,16 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             const ny = note.y + 20;
             const points = [{ x: ax, y: ay }, ...(note.controlPoints || []), { x: nx, y: ny }];
             
+            // Check if this connection is involved in a drag to keep hover state
+            const isDraggingThis = dragTarget && dragTarget.id === note.id && dragTarget.type === 'controlPoint';
+
             elements.push(
                 <ConnectionRenderer 
                     key={`anchor-${note.id}`}
                     points={points}
                     style={note.connectionStyle || 'curved'}
                     color={note.connectionColor || note.color}
-                    isHovered={hoveredConnectionId === note.id}
+                    isHovered={hoveredConnectionId === note.id || isDraggingThis}
                     onHover={(h) => setHoveredConnectionId(h ? note.id : null)}
                     onContextMenu={(e) => handleConnectionContextMenu(e, note.id, 'anchorConnection')}
                     renderAnchors={true}
@@ -1374,6 +1410,9 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             const ty = tgt.y + (tgt.minimized ? 20 : 60);
 
             const points = [{ x: sx, y: sy }, ...(conn.controlPoints || []), { x: tx, y: ty }];
+            
+            // Check drag state to prevent flicker
+            const isDraggingThis = dragTarget && dragTarget.id === conn.id;
 
             elements.push(
                 <ConnectionRenderer
@@ -1381,7 +1420,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                     points={points}
                     style={conn.style || 'curved'}
                     color={conn.color || '#cbd5e1'}
-                    isHovered={hoveredConnectionId === conn.id}
+                    isHovered={hoveredConnectionId === conn.id || isDraggingThis}
                     onHover={(h) => setHoveredConnectionId(h ? conn.id : null)}
                     onContextMenu={(e) => handleConnectionContextMenu(e, conn.id, 'noteConnection')}
                     controlPoints={conn.controlPoints}
@@ -1424,9 +1463,10 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         }
 
         return elements;
-    }, [stickyNotes, noteConnections, pageNum, contentDimensions, hoveredConnectionId, linkingState, anchorLinkingState, handleElementMouseDown]);
+    }, [stickyNotes, noteConnections, pageNum, contentDimensions, hoveredConnectionId, linkingState, anchorLinkingState, handleElementMouseDown, dragTarget]);
 
-    // ... (keep the rest of the component unchanged)
+    // ... (rest of the component logic) ...
+
     // --- AI Feature State ---
     const extractCurrentPageText = async () => {
         if (!pdfDocument || sourceType !== 'PDF') return null;
@@ -1464,6 +1504,8 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
 
     // --- CANVAS HANDLERS ---
     const handleCanvasMouseDown = (e: React.MouseEvent) => {
+        if (dragTarget) return; // Don't pan if dragging
+        
         // Panning Logic
         if (e.button === 1 || tool === 'select' || (e.button === 0 && (e.ctrlKey || e.metaKey))) {
              setIsPanning(true);
