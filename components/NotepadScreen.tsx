@@ -162,7 +162,13 @@ const ConnectionRenderer: React.FC<{
     }, [points, style]);
 
     return (
-        <g onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)} onContextMenu={onContextMenu} className="group">
+        <g 
+            onMouseEnter={() => onHover(true)} 
+            onMouseLeave={() => onHover(false)} 
+            onContextMenu={onContextMenu} 
+            className="group"
+            style={{ pointerEvents: 'auto' }}
+        >
             <path d={pathData} fill="none" stroke="transparent" strokeWidth={20} className="cursor-pointer" />
             <path d={pathData} fill="none" stroke={color} strokeWidth={isHovered ? 4 : 2} strokeDasharray={style === 'straight' ? '5,5' : 'none'} strokeLinecap="round" className="transition-all duration-200" />
             {renderAnchors && anchorPos && (
@@ -1127,7 +1133,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 const canvasX = (mouseX - viewport.x) / viewport.zoom;
                 const canvasY = (mouseY - viewport.y) / viewport.zoom;
                 
-                // Use variable for drag offset to avoid repeated casting and access
                 const dragOffset = dragStartOffset.current as { x: number, y: number };
 
                 // --- NOTE DRAGGING ---
@@ -1382,6 +1387,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         return elements;
     }, [stickyNotes, noteConnections, pageNum, contentDimensions, hoveredConnectionId, linkingState, anchorLinkingState, handleElementMouseDown]);
 
+    // ... (keep the rest of the component unchanged)
     // --- AI Feature State ---
     const extractCurrentPageText = async () => {
         if (!pdfDocument || sourceType !== 'PDF') return null;
