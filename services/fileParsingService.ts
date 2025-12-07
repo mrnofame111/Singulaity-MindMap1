@@ -3,7 +3,8 @@ import * as pdfjsLib from 'pdfjs-dist';
 
 // Set worker source for PDF.js
 // We use a CDN for the worker to avoid complex build configuration in this environment
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js`;
+// Must match the version in package.json / importmap (5.4.449) and use .mjs for module support
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs`;
 
 export const parseFile = async (file: File): Promise<string> => {
     const fileType = file.type;

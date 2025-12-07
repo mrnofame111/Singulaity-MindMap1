@@ -18,6 +18,7 @@ interface MapMetadata {
 interface HomeScreenProps {
     onOpenMap: (id: string) => void;
     onCreateMap: (data?: any) => void;
+    onOpenNotepad: () => void;
     onBackToLanding: () => void;
     onLoginClick: () => void; 
     user: any; 
@@ -25,7 +26,7 @@ interface HomeScreenProps {
 
 type TabType = 'MY_MAPS' | 'TEMPLATES' | 'SHARED' | 'TRASH';
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, onBackToLanding, onLoginClick, user }) => {
+export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, onOpenNotepad, onBackToLanding, onLoginClick, user }) => {
     const [maps, setMaps] = useState<MapMetadata[]>([]);
     const [search, setSearch] = useState('');
     const [activeTab, setActiveTab] = useState<TabType>('MY_MAPS');
@@ -291,6 +292,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
 
                 <div className="flex-1 py-6 px-4 space-y-2 overflow-hidden">
                     <SidebarButton id="MY_MAPS" label="My Maps" icon={Icon.Layout} />
+                    
+                    {/* MY NOTEPAD LINK */}
+                    <button 
+                        onClick={onOpenNotepad}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-900 ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
+                        title={isSidebarCollapsed ? "My Notepad" : undefined}
+                    >
+                        <Icon.Notebook size={18} className="text-orange-500" /> 
+                        {!isSidebarCollapsed && <span className="truncate">My Notepad</span>}
+                    </button>
+                    
+                    <div className="h-px bg-gray-100 my-2" />
+
                     <SidebarButton id="TEMPLATES" label="Templates" icon={Icon.Sparkles} />
                     <SidebarButton id="SHARED" label="Shared with Me" icon={Icon.Share} />
                     <SidebarButton id="TRASH" label="Trash" icon={Icon.Trash} />

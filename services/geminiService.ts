@@ -1,6 +1,7 @@
 
 
 
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIMindMapNode, AIGenerationOptions, SingularityNode, AIAction, AIGraphResult, NodeType } from "../types";
 
@@ -490,4 +491,67 @@ export const generateDreamImage = async (
     console.error("Dream Image Error:", error);
     return null;
   }
+};
+
+/**
+ * Extracts key concepts from an image (e.g. document page)
+ */
+export const extractConceptsFromImage = async (imageData: string): Promise<{ concepts: any[] } | null> => {
+    if (!apiKey) return null;
+
+    // Data URI parsing: data:[<mediatype>][;base64],<data>
+    const match = imageData.match(/^data:(.+);base64,(.+)$/);
+    if (!match) return null;
+
+    const mimeType = match[1];
+    const data = match[2];
+
+    const prompt = `
+      Analyze this document image. Identify key concepts, definitions, or important points.
+      Return a JSON object with a "concepts" array.
+      Each item should have:
+      - "label": Concise title.
+      - "description": Short explanation.
+      - "type": "CONCEPT" or "TASK" or "NOTE".
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType, data } }
+                    ]
+                }
+            ],
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        concepts: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    label: { type: Type.STRING },
+                                    description: { type: Type.STRING },
+                                    type: { type: Type.STRING }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        const text = response.text;
+        if (!text) return null;
+        return JSON.parse(text);
+    } catch (e) {
+        console.error("Extract Concepts Error", e);
+        return null;
+    }
 };

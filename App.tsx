@@ -9,13 +9,15 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { supabase } from './lib/supabase';
 import { migrateLocalMapsToCloud, saveMapToCloud, createMapInCloud, loadMapFromCloud, CLOUD_UNAVAILABLE } from './services/cloudService';
 import { getProfile } from './services/profileService';
+import { NotepadScreen } from './components/NotepadScreen';
 
-type ViewState = 'LANDING' | 'HOME' | 'CANVAS';
+type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('LANDING');
   const [activeMapId, setActiveMapId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [loadingText, setLoadingText] = useState<string>("DREAMING...");
   
   // Auth State
   const [user, setUser] = useState<any>(null);
@@ -190,6 +192,7 @@ const App: React.FC = () => {
           <HomeScreen 
             onOpenMap={handleOpenMap} 
             onCreateMap={handleCreateMap}
+            onOpenNotepad={() => setCurrentView('NOTEPAD')}
             onBackToLanding={() => setCurrentView('LANDING')}
             onLoginClick={() => setIsAuthModalOpen(true)}
             user={user}
@@ -202,9 +205,14 @@ const App: React.FC = () => {
           onBack={handleBackToHome}
           isGenerating={isGenerating}
           setIsGenerating={setIsGenerating}
+          setLoadingText={setLoadingText}
           triggerAiPrompt={null}
           user={user}
         />
+      )}
+
+      {currentView === 'NOTEPAD' && (
+          <NotepadScreen onBack={() => setCurrentView('HOME')} />
       )}
       
       {/* Global Loading Overlay */}
@@ -212,7 +220,7 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[9999] bg-white/50 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
           <div className="relative p-8 rounded-3xl bg-white shadow-clay-xl border border-white/50">
             <div className="w-16 h-16 border-8 border-blue-100 border-t-blue-500 rounded-full animate-spin mb-4 mx-auto" />
-            <p className="font-display font-bold text-xl text-blue-600 tracking-wide animate-pulse text-center">DREAMING...</p>
+            <p className="font-display font-bold text-xl text-blue-600 tracking-wide animate-pulse text-center">{loadingText}</p>
           </div>
         </div>
       )}

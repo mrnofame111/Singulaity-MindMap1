@@ -92,7 +92,12 @@ import {
   PanelLeft,
   LogOut,
   CloudOff,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  BookOpen,
+  ScanEye,
+  Notebook,
+  FileUp
 } from 'lucide-react';
 
 export const Icon = {
@@ -190,5 +195,10 @@ export const Icon = {
   PanelLeft,
   LogOut,
   CloudOff,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  BookOpen,
+  ScanEye,
+  Notebook,
+  FileUp
 };
