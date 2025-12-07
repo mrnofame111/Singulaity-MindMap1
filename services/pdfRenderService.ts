@@ -1,10 +1,9 @@
 
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set worker source for PDF.js
-// We use a CDN for the worker to avoid complex build configuration
-// Must match the version in package.json / importmap (5.4.449) and use .mjs for module support
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs`;
+// Set worker source for PDF.js dynamically
+const pdfjsVersion = pdfjsLib.version || '5.4.449';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.min.mjs`;
 
 export interface PdfPageImage {
     pageNumber: number;
@@ -16,7 +15,14 @@ export interface PdfPageImage {
 export const renderPdfToImages = async (file: File): Promise<PdfPageImage[]> => {
     try {
         const arrayBuffer = await file.arrayBuffer();
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        // Convert to Uint8Array for compatibility
+        const data = new Uint8Array(arrayBuffer);
+        
+        const loadingTask = pdfjsLib.getDocument({ 
+            data,
+            cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/cmaps/`,
+            cMapPacked: true 
+        });
         const pdf = await loadingTask.promise;
         
         const pages: PdfPageImage[] = [];

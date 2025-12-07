@@ -5,8 +5,9 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { saveFile, getFile } from '../services/localDb';
 
 // Set worker source for PDF.js dynamically to prevent version mismatch
-// This ensures the worker script version matches the library version exactly
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+// We use a fallback version if the library version isn't available immediately
+const pdfjsVersion = pdfjsLib.version || '5.4.449';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.min.mjs`;
 
 interface NotepadPanelProps {
     isOpen: boolean;
@@ -105,7 +106,7 @@ export const NotepadPanel: React.FC<NotepadPanelProps> = ({ isOpen, onClose, cur
             
             const loadingTask = pdfjsLib.getDocument({ 
                 data, 
-                cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`, 
+                cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/cmaps/`, 
                 cMapPacked: true 
             });
             const pdf = await loadingTask.promise;

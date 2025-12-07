@@ -1,12 +1,12 @@
-
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Icon } from './Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as htmlToImage from 'html-to-image';
 import { saveFile, getFile } from '../services/localDb';
 
-// Set worker source for PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs`;
+// Set worker source for PDF.js dynamically
+const pdfjsVersion = pdfjsLib.version || '5.4.449';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.min.mjs`;
 
 interface NotepadScreenProps {
     onBack: () => void;
@@ -104,6 +104,75 @@ const solveCatmullRom = (p0: ControlPoint, p1: ControlPoint, p2: ControlPoint, p
         cp1: { x: p1.x + t0.x / 3, y: p1.y + t0.y / 3 },
         cp2: { x: p2.x - t1.x / 3, y: p2.y - t1.y / 3 }
     };
+};
+
+const ConnectionRenderer: React.FC<{
+    points: { x: number; y: number }[];
+    style: 'straight' | 'curved' | 'orthogonal';
+    color: string;
+    isHovered: boolean;
+    onHover: (h: boolean) => void;
+    onContextMenu: (e: React.MouseEvent) => void;
+    renderAnchors?: boolean;
+    anchorPos?: { x: number; y: number };
+    noteId?: string;
+    onAnchorDrag?: (e: React.MouseEvent) => void;
+    controlPoints?: ControlPoint[];
+    onControlPointDrag?: (index: number, e: React.MouseEvent, pt: {x: number, y: number}) => void;
+}> = ({ points, style, color, isHovered, onHover, onContextMenu, renderAnchors, anchorPos, onAnchorDrag, controlPoints, onControlPointDrag }) => {
+    const pathData = useMemo(() => {
+        if (points.length < 2) return '';
+        const start = points[0];
+        
+        if (style === 'straight') {
+             return `M ${points.map(p => `${p.x} ${p.y}`).join(' L ')}`;
+        }
+
+        if (style === 'orthogonal') {
+            let d = `M ${start.x} ${start.y}`;
+            for (let i = 0; i < points.length - 1; i++) {
+                const curr = points[i];
+                const next = points[i+1];
+                const midX = (curr.x + next.x) / 2;
+                d += ` L ${midX} ${curr.y} L ${midX} ${next.y} L ${next.x} ${next.y}`;
+            }
+            return d;
+        }
+
+        if (points.length === 2) {
+             const end = points[1];
+             const dx = end.x - start.x;
+             const curvature = Math.min(Math.abs(dx) * 0.8, 150);
+             return `M ${start.x} ${start.y} C ${start.x + curvature} ${start.y}, ${end.x - curvature} ${end.y}, ${end.x} ${end.y}`;
+        } else {
+             let d = `M ${points[0].x} ${points[0].y}`;
+             const pStart = { x: points[0].x - (points[1].x - points[0].x), y: points[0].y - (points[1].y - points[0].y) };
+             const pEnd = { x: points[points.length-1].x + (points[points.length-1].x - points[points.length-2].x), y: points[points.length-1].y + (points[points.length-1].y - points[points.length-2].y) };
+             const fullPoints = [pStart, ...points, pEnd];
+             for (let i = 1; i < fullPoints.length - 2; i++) {
+                 const p0 = fullPoints[i-1];
+                 const p1 = fullPoints[i];
+                 const p2 = fullPoints[i+1];
+                 const p3 = fullPoints[i+2];
+                 const { cp1, cp2 } = solveCatmullRom(p0, p1, p2, p3);
+                 d += ` C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${p2.x} ${p2.y}`;
+             }
+             return d;
+        }
+    }, [points, style]);
+
+    return (
+        <g onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)} onContextMenu={onContextMenu} className="group">
+            <path d={pathData} fill="none" stroke="transparent" strokeWidth={20} className="cursor-pointer" />
+            <path d={pathData} fill="none" stroke={color} strokeWidth={isHovered ? 4 : 2} strokeDasharray={style === 'straight' ? '5,5' : 'none'} strokeLinecap="round" className="transition-all duration-200" />
+            {renderAnchors && anchorPos && (
+                <circle cx={anchorPos.x} cy={anchorPos.y} r={6} fill={color} stroke="white" strokeWidth={2} className="cursor-move hover:scale-125 transition-transform" onMouseDown={onAnchorDrag} />
+            )}
+            {(isHovered || (controlPoints && controlPoints.length > 0)) && controlPoints?.map((cp, idx) => (
+                 <circle key={idx} cx={cp.x} cy={cp.y} r={5} fill="white" stroke={color} strokeWidth={2} className="cursor-move hover:scale-125 transition-transform" onMouseDown={(e) => onControlPointDrag && onControlPointDrag(idx, e, cp)} />
+            ))}
+        </g>
+    );
 };
 
 const NotepadMinimap: React.FC<{
@@ -614,7 +683,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                      data = new Uint8Array(binaryString.length);
                      for (let i = 0; i < binaryString.length; i++) data[i] = binaryString.charCodeAt(i);
                 } else { data = new Uint8Array(bufferCopy as ArrayBuffer); }
-                const loadingTask = pdfjsLib.getDocument({ data, cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.449/cmaps/`, cMapPacked: true });
+                const loadingTask = pdfjsLib.getDocument({ data, cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/cmaps/`, cMapPacked: true });
                 const pdf = await loadingTask.promise;
                 setPdfDocument(pdf); setNumPages(pdf.numPages);
             } catch (err) { console.error("Error loading PDF:", err); setPdfError("Failed to load PDF."); }
@@ -1965,75 +2034,5 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             </div>
         )}
         </div>
-    );
-};
-
-const ConnectionRenderer: React.FC<{
-    points: {x: number, y: number}[],
-    style: string,
-    color: string,
-    isHovered: boolean,
-    onHover: (h: boolean) => void,
-    onContextMenu: (e: React.MouseEvent) => void,
-    controlPoints?: ControlPoint[],
-    onControlPointDrag?: (idx: number, e: React.MouseEvent, pt: {x: number, y: number}) => void,
-    renderAnchors?: boolean,
-    anchorPos?: {x: number, y: number},
-    noteId?: string,
-    onAnchorDrag?: (e: React.MouseEvent) => void
-}> = ({ points, style, color, isHovered, onHover, onContextMenu, controlPoints, onControlPointDrag, renderAnchors, anchorPos, noteId, onAnchorDrag }) => {
-    
-    const pathD = useMemo(() => {
-        let d = '';
-        if (style === 'straight') {
-            d = `M ${points[0].x} ${points[0].y}`;
-            for (let i = 1; i < points.length; i++) d += ` L ${points[i].x} ${points[i].y}`;
-        } else if (style === 'orthogonal') {
-            d = `M ${points[0].x} ${points[0].y}`;
-            for (let i = 0; i < points.length - 1; i++) {
-                const curr = points[i];
-                const next = points[i + 1];
-                const midX = (curr.x + next.x) / 2;
-                d += ` L ${midX} ${curr.y} L ${midX} ${next.y} L ${next.x} ${next.y}`;
-            }
-        } else {
-             if (points.length === 2) {
-                const p0 = points[0]; const p1 = points[1];
-                const dx = Math.abs(p1.x - p0.x) * 0.5;
-                d = `M ${p0.x} ${p0.y} C ${p0.x + dx} ${p0.y}, ${p1.x - dx} ${p1.y}, ${p1.x} ${p1.y}`;
-            } else {
-                d = `M ${points[0].x} ${points[0].y}`;
-                const phantomStart = { x: points[0].x - (points[1].x - points[0].x), y: points[0].y - (points[1].y - points[0].y) };
-                const phantomEnd = { x: points[points.length-1].x + (points[points.length-1].x - points[points.length-2].x), y: points[points.length-1].y + (points[points.length-1].y - points[points.length-2].y) };
-                const fullPoints = [phantomStart, ...points, phantomEnd];
-                for (let i = 1; i < fullPoints.length - 2; i++) {
-                    const p0 = fullPoints[i-1]; const p1 = fullPoints[i]; const p2 = fullPoints[i+1]; const p3 = fullPoints[i+2];
-                    const { cp1, cp2 } = solveCatmullRom(p0, p1, p2, p3);
-                    d += ` C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${p2.x} ${p2.y}`;
-                }
-            }
-        }
-        return d;
-    }, [points, style]);
-
-    return (
-        <g onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
-            <path d={pathD} stroke="transparent" strokeWidth="20" fill="none" className="cursor-context-menu" style={{ pointerEvents: 'stroke' }} onContextMenu={onContextMenu} />
-            <path d={pathD} stroke={isHovered ? '#3b82f6' : color} strokeWidth={isHovered ? 4 : 2} fill="none" className="pointer-events-none transition-colors duration-200" />
-            
-            {renderAnchors && anchorPos && (
-                <g className="group/anchor">
-                    <circle cx={anchorPos.x} cy={anchorPos.y} r={12} fill="transparent" className="cursor-move pointer-events-auto" onMouseDown={onAnchorDrag} />
-                    <circle cx={anchorPos.x} cy={anchorPos.y} r={6} fill={isHovered ? "#3b82f6" : color} stroke="white" strokeWidth={1} className="pointer-events-none transition-all duration-200 group-hover/anchor:r-8" />
-                </g>
-            )}
-
-            {controlPoints && controlPoints.map((cp, idx) => (
-                 <g key={idx} className="group/cp">
-                     <circle cx={cp.x} cy={cp.y} r={12} fill="transparent" className="cursor-move pointer-events-auto" onMouseDown={(e) => onControlPointDrag && onControlPointDrag(idx, e, { x: cp.x, y: cp.y })} />
-                     <circle cx={cp.x} cy={cp.y} r={5} fill="white" stroke={isHovered ? '#3b82f6' : color} strokeWidth={2} className="pointer-events-none transition-all duration-200 group-hover/cp:scale-125" />
-                 </g>
-            ))}
-        </g>
     );
 };
