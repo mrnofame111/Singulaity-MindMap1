@@ -1,17 +1,28 @@
 
-import React, { useState, useEffect } from 'react';
-import SingularityCanvas from './components/SingularityCanvas';
-import { LandingPage } from './components/LandingPage';
-import { HomeScreen } from './components/HomeScreen';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { generateId } from './constants';
 import { AuthModal } from './components/AuthModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { supabase } from './lib/supabase';
 import { migrateLocalMapsToCloud, saveMapToCloud, createMapInCloud, loadMapFromCloud, CLOUD_UNAVAILABLE } from './services/cloudService';
 import { getProfile } from './services/profileService';
-import { NotepadScreen } from './components/NotepadScreen';
+
+// --- LAZY LOAD HEAVY COMPONENTS ---
+// This drastically reduces the initial load time by splitting code into chunks.
+const SingularityCanvas = lazy(() => import('./components/SingularityCanvas'));
+const LandingPage = lazy(() => import('./components/LandingPage').then(module => ({ default: module.LandingPage })));
+const HomeScreen = lazy(() => import('./components/HomeScreen').then(module => ({ default: module.HomeScreen })));
+const NotepadScreen = lazy(() => import('./components/NotepadScreen').then(module => ({ default: module.NotepadScreen })));
 
 type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD';
+
+// Loading Component for Suspense
+const GlobalLoader = ({ text }: { text?: string }) => (
+  <div className="fixed inset-0 z-[9999] bg-[#f0f4f8] flex flex-col items-center justify-center">
+    <div className="w-16 h-16 border-8 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-6" />
+    <p className="font-display font-bold text-xl text-blue-600 tracking-wide animate-pulse">{text || "LOADING..."}</p>
+  </div>
+);
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('LANDING');
@@ -184,38 +195,40 @@ const App: React.FC = () => {
   return (
     <div className="w-screen h-screen bg-[#f0f4f8] text-gray-800 overflow-hidden font-sans selection:bg-blue-200">
       
-      {currentView === 'LANDING' && (
-          <LandingPage onLaunch={handleLaunchApp} />
-      )}
+      <Suspense fallback={<GlobalLoader text="INITIALIZING..." />}>
+        {currentView === 'LANDING' && (
+            <LandingPage onLaunch={handleLaunchApp} />
+        )}
 
-      {currentView === 'HOME' && (
-          <HomeScreen 
-            onOpenMap={handleOpenMap} 
-            onCreateMap={handleCreateMap}
-            onOpenNotepad={() => setCurrentView('NOTEPAD')}
-            onBackToLanding={() => setCurrentView('LANDING')}
-            onLoginClick={() => setIsAuthModalOpen(true)}
+        {currentView === 'HOME' && (
+            <HomeScreen 
+              onOpenMap={handleOpenMap} 
+              onCreateMap={handleCreateMap}
+              onOpenNotepad={() => setCurrentView('NOTEPAD')}
+              onBackToLanding={() => setCurrentView('LANDING')}
+              onLoginClick={() => setIsAuthModalOpen(true)}
+              user={user}
+            />
+        )}
+
+        {currentView === 'CANVAS' && activeMapId && (
+          <SingularityCanvas 
+            mapId={activeMapId}
+            onBack={handleBackToHome}
+            isGenerating={isGenerating}
+            setIsGenerating={setIsGenerating}
+            setLoadingText={setLoadingText}
+            triggerAiPrompt={null}
             user={user}
           />
-      )}
+        )}
 
-      {currentView === 'CANVAS' && activeMapId && (
-        <SingularityCanvas 
-          mapId={activeMapId}
-          onBack={handleBackToHome}
-          isGenerating={isGenerating}
-          setIsGenerating={setIsGenerating}
-          setLoadingText={setLoadingText}
-          triggerAiPrompt={null}
-          user={user}
-        />
-      )}
-
-      {currentView === 'NOTEPAD' && (
-          <NotepadScreen onBack={() => setCurrentView('HOME')} />
-      )}
+        {currentView === 'NOTEPAD' && (
+            <NotepadScreen onBack={() => setCurrentView('HOME')} />
+        )}
+      </Suspense>
       
-      {/* Global Loading Overlay */}
+      {/* Global Loading Overlay (For AI operations) */}
       {isGenerating && (
         <div className="fixed inset-0 z-[9999] bg-white/50 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
           <div className="relative p-8 rounded-3xl bg-white shadow-clay-xl border border-white/50">
