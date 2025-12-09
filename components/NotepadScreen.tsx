@@ -404,6 +404,131 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         });
     }, [annotations, pageNum, renderScale]);
 
+    // --- NEW: Zoom & Gesture Logic with Refs for Conflict-Free interaction ---
+    const touchStateRef = useRef<{ dist: number; center: {x: number, y: number} } | null>(null);
+
+    const handleZoom = useCallback((delta: number, center?: { x: number, y: number }) => {
+        setViewport(prev => {
+            const newZoom = Math.min(Math.max(prev.zoom + delta, MIN_ZOOM), MAX_ZOOM);
+            if (!center || !canvasContainerRef.current) {
+                 // Center zoom
+                 const container = canvasContainerRef.current;
+                 const w = container ? container.clientWidth : window.innerWidth;
+                 const h = container ? container.clientHeight : window.innerHeight;
+                 const cx = (w/2 - prev.x) / prev.zoom;
+                 const cy = (h/2 - prev.y) / prev.zoom;
+                 return { x: w/2 - cx * newZoom, y: h/2 - cy * newZoom, zoom: newZoom };
+            }
+
+            const rect = canvasContainerRef.current!.getBoundingClientRect();
+            const mouseX = center.x - rect.left;
+            const mouseY = center.y - rect.top;
+            const contentX = (mouseX - prev.x) / prev.zoom;
+            const contentY = (mouseY - prev.y) / prev.zoom;
+            return { x: mouseX - contentX * newZoom, y: mouseY - contentY * newZoom, zoom: newZoom };
+        });
+    }, []);
+
+    useEffect(() => {
+        const container = canvasContainerRef.current;
+        if (!container) return;
+
+        const onWheel = (e: WheelEvent) => {
+            if ((e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).tagName === 'INPUT') return;
+            e.preventDefault(); 
+            
+            const isPinch = e.ctrlKey;
+            const delta = -e.deltaY;
+            
+            // "Rotate wheel to zoom" logic + Pinch support
+            let zoomDelta = 0;
+            if (isPinch) {
+                zoomDelta = delta * 0.01;
+            } else {
+                const sign = Math.sign(delta);
+                zoomDelta = sign * 0.1;
+                // If it's a small delta (trackpad smooth scroll), use proportional
+                if (Math.abs(e.deltaY) < 50) zoomDelta = delta * 0.002;
+            }
+            
+            setViewport(prev => {
+                 const newZoom = Math.min(Math.max(prev.zoom + zoomDelta, MIN_ZOOM), MAX_ZOOM);
+                 const rect = container.getBoundingClientRect();
+                 const mouseX = e.clientX - rect.left;
+                 const mouseY = e.clientY - rect.top;
+                 
+                 const contentX = (mouseX - prev.x) / prev.zoom;
+                 const contentY = (mouseY - prev.y) / prev.zoom;
+                 
+                 return { x: mouseX - contentX * newZoom, y: mouseY - contentY * newZoom, zoom: newZoom };
+            });
+        };
+
+        const onTouchStart = (e: TouchEvent) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+                const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+                const center = {
+                    x: (t1.clientX + t2.clientX) / 2,
+                    y: (t1.clientY + t2.clientY) / 2
+                };
+                touchStateRef.current = { dist, center };
+            }
+        };
+
+        const onTouchMove = (e: TouchEvent) => {
+            if (e.touches.length === 2 && touchStateRef.current) {
+                e.preventDefault();
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+                const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+                const center = {
+                    x: (t1.clientX + t2.clientX) / 2,
+                    y: (t1.clientY + t2.clientY) / 2
+                };
+
+                const scale = dist / touchStateRef.current.dist;
+                
+                setViewport(prev => {
+                    const newZoom = Math.min(Math.max(prev.zoom * scale, MIN_ZOOM), MAX_ZOOM);
+                    const rect = container.getBoundingClientRect();
+                    const mouseX = center.x - rect.left;
+                    const mouseY = center.y - rect.top;
+                    const contentX = (mouseX - prev.x) / prev.zoom;
+                    const contentY = (mouseY - prev.y) / prev.zoom;
+
+                    return {
+                        x: mouseX - (contentX * newZoom),
+                        y: mouseY - (contentY * newZoom),
+                        zoom: newZoom
+                    };
+                });
+                
+                touchStateRef.current = { dist, center };
+            }
+        };
+
+        const onTouchEnd = (e: TouchEvent) => {
+            if (e.touches.length < 2) {
+                touchStateRef.current = null;
+            }
+        };
+
+        container.addEventListener('wheel', onWheel, { passive: false });
+        container.addEventListener('touchstart', onTouchStart, { passive: false });
+        container.addEventListener('touchmove', onTouchMove, { passive: false });
+        container.addEventListener('touchend', onTouchEnd);
+
+        return () => {
+            container.removeEventListener('wheel', onWheel);
+            container.removeEventListener('touchstart', onTouchStart);
+            container.removeEventListener('touchmove', onTouchMove);
+            container.removeEventListener('touchend', onTouchEnd);
+        };
+    }, []);
+
     const commitToHistory = useCallback((newAnnotations: Record<number, AnnotationPath[]>, newNotes: Record<number, StickyNote[]>, newConns: Record<number, NoteConnection[]>, newSections?: TextSection[]) => {
         const sectionsToSave = newSections || sections;
         setAnnotations(newAnnotations);
@@ -1529,6 +1654,74 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             onMouseUp={handleCanvasMouseUp}
                             onContextMenu={handleContentContextMenu}
                         >
+                            {/* FLOATING PAGE CONTROLS */}
+                            {numPages > 1 && (
+                                <>
+                                    <button 
+                                        onClick={() => changePage(Math.max(1, pageNum - 1))} 
+                                        disabled={pageNum <= 1}
+                                        className="absolute left-6 top-1/2 -translate-y-1/2 z-50 p-3 bg-white/80 hover:bg-white text-gray-500 hover:text-indigo-600 rounded-full shadow-clay-md border border-white/50 backdrop-blur-md transition-all disabled:opacity-0 disabled:pointer-events-none hover:scale-110 active:scale-95"
+                                    >
+                                        <Icon.ChevronLeft size={24} strokeWidth={3} />
+                                    </button>
+                                    <button 
+                                        onClick={() => changePage(Math.min(numPages, pageNum + 1))} 
+                                        disabled={pageNum >= numPages}
+                                        className="absolute right-6 top-1/2 -translate-y-1/2 z-50 p-3 bg-white/80 hover:bg-white text-gray-500 hover:text-indigo-600 rounded-full shadow-clay-md border border-white/50 backdrop-blur-md transition-all disabled:opacity-0 disabled:pointer-events-none hover:scale-110 active:scale-95"
+                                    >
+                                        <Icon.ChevronRight size={24} strokeWidth={3} />
+                                    </button>
+                                </>
+                            )}
+
+                            {/* FLOATING BOTTOM TOOLBAR (Zoom & Undo) */}
+                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 p-1.5 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-clay-xl transition-all hover:shadow-clay-2xl select-none">
+                                <button onClick={undo} disabled={historyIndex <= 0} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 disabled:opacity-30 transition-colors" title="Undo (Ctrl+Z)">
+                                    <Icon.Undo size={20} />
+                                </button>
+                                <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 disabled:opacity-30 transition-colors" title="Redo (Ctrl+Y)">
+                                    <Icon.Redo size={20} />
+                                </button>
+                                
+                                <div className="w-px h-6 bg-gray-300 mx-2" />
+                                
+                                <button onClick={() => handleZoom(-0.1)} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
+                                    <Icon.Minus size={20} />
+                                </button>
+                                
+                                <div className="w-32 flex items-center px-2">
+                                    <input 
+                                        type="range" 
+                                        min={MIN_ZOOM} 
+                                        max={MAX_ZOOM} 
+                                        step="0.1" 
+                                        value={viewport.zoom}
+                                        onChange={(e) => {
+                                            const newZoom = parseFloat(e.target.value);
+                                            // Zoom relative to center screen for slider
+                                            const container = canvasContainerRef.current;
+                                            if (container) {
+                                                const w = container.clientWidth;
+                                                const h = container.clientHeight;
+                                                const centerX = w / 2;
+                                                const centerY = h / 2;
+                                                handleZoom(newZoom - viewport.zoom, { x: centerX + container.getBoundingClientRect().left, y: centerY + container.getBoundingClientRect().top });
+                                            } else {
+                                                handleZoom(newZoom - viewport.zoom);
+                                            }
+                                        }}
+                                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" 
+                                    />
+                                </div>
+
+                                <span className="w-10 text-center font-bold text-sm text-gray-700 select-none">
+                                    {Math.round(viewport.zoom * 100)}%
+                                </span>
+                                <button onClick={() => handleZoom(0.1)} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
+                                    <Icon.Plus size={20} />
+                                </button>
+                            </div>
+
                             <div ref={captureContainerRef} style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`, transformOrigin: 'top left', width: CANVAS_SIZE, height: CANVAS_SIZE, position: 'absolute', top: 0, left: 0 }} className="bg-transparent">
                                 <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-2xl bg-white" style={{ boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', padding: '0', width: contentDimensions ? contentDimensions.width : 'auto', height: contentDimensions ? contentDimensions.height : 'auto' }} onMouseDown={handleContentMouseDown} onMouseMove={handleContentMouseMove} onMouseUp={handleContentMouseUp}>
                                     {pdfError ? (
