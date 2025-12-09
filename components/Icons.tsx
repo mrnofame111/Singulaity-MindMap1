@@ -69,15 +69,10 @@ import {
   Pipette,
   Layers,
   ExternalLink,
-  SkipForward,
-  SkipBack,
   StopCircle,
   Code,
   Table,
   Wand2,
-  Terminal,
-  Cpu,
-  Database,
   Check,
   ChevronDown,
   ChevronRight,
@@ -94,10 +89,10 @@ import {
   CloudOff,
   AlertTriangle,
   Upload,
-  BookOpen,
-  ScanEye,
   Notebook,
-  FileUp
+  FileUp,
+  Wifi,
+  Database
 } from 'lucide-react';
 
 export const Icon = {
@@ -171,15 +166,10 @@ export const Icon = {
   Pipette,
   Layers,
   ExternalLink,
-  Next: SkipForward,
-  Prev: SkipBack,
   Stop: StopCircle,
   Code,
   Table,
   Magic: Wand2,
-  Terminal,
-  Cpu,
-  Database,
   Check,
   ChevronDown,
   ChevronRight,
@@ -197,8 +187,8 @@ export const Icon = {
   CloudOff,
   AlertTriangle,
   Upload,
-  BookOpen,
-  ScanEye,
   Notebook,
-  FileUp
+  FileUp,
+  Wifi,
+  Database
 };

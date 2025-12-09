@@ -1,1 +1,2 @@
-// This file has been removed as it is superseded by NotepadScreen.tsx
+// This file has been removed. Use NotepadScreen.tsx for the full-featured infinite notepad.
+export const NotepadPanel = () => null;

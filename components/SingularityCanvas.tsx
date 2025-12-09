@@ -29,7 +29,6 @@ import { CustomToolbar, CustomTool } from './CustomToolbar';
 import { IntegrationsModal } from './IntegrationsModal';
 import { UpgradeModal } from './UpgradeModal';
 import { Icon } from './Icons';
-import * as htmlToImage from 'html-to-image';
 
 const SNAP_THRESHOLD = 5;
 const NODE_SHAPES_CYCLE: NodeShape[] = ['circle', 'rectangle', 'rounded', 'diamond', 'triangle', 'hexagon', 'octagon', 'parallelogram', 'cloud'];
@@ -506,6 +505,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
 
   useEffect(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    // Optimized: Increased to 4s for Lite version to reduce CPU/Storage hits
     saveTimeoutRef.current = setTimeout(() => {
       const key = `singularity-map-${mapId}`;
       const data = {
@@ -524,7 +524,7 @@ const SingularityCanvas: React.FC<CanvasProps> = ({ mapId, onBack, isGenerating,
       }
       localStorage.setItem('singularity-maps-index', JSON.stringify(index));
 
-    }, 2000); 
+    }, 4000); 
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
   }, [nodes, drawings, edgeData, viewport, projectName, canvasSettings, defaultEdgeOptions, defaultNodeShape, defaultNodeColor, smartRules, mapId, collapsedNodeIds]);
 
