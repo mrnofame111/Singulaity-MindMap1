@@ -39,6 +39,12 @@ interface StickyNote {
     page: number;
     connectionColor?: string;
     connectionStyle?: 'straight' | 'curved' | 'orthogonal';
+    
+    // New Fields for Multimedia
+    contentType?: 'text' | 'image' | 'audio' | 'table' | 'drawing';
+    mediaUrl?: string;
+    tableData?: string[][];
+    isPlaceholder?: boolean;
 }
 
 interface NoteConnection {
@@ -193,15 +199,23 @@ const ConnectionRenderer: React.FC<{
         >
             <path d={pathData} fill="none" stroke="transparent" strokeWidth={30} className="cursor-pointer" />
             {isSelected && <path d={pathData} fill="none" stroke="#3b82f6" strokeWidth={8} strokeLinecap="round" opacity={0.5} className="animate-pulse" />}
-            <path d={pathData} fill="none" stroke={color} strokeWidth={isHovered || isSelected ? 4 : 2} strokeDasharray={style === 'straight' ? '5,5' : 'none'} strokeLinecap="round" className="pointer-events-none transition-all" />
+            
+            <path d={pathData} fill="none" stroke={color} strokeWidth={isHovered || isSelected ? 4 : 2} strokeDasharray={style === 'straight' ? '5,5' : 'none'} strokeLinecap="round" className="pointer-events-none" />
+            
             {renderAnchors && anchorPos && (
-                <g className="cursor-move" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); onAnchorDrag && onAnchorDrag(e); }}>
+                <g className="cursor-move" onMouseDown={(e) => { 
+                    if (e.button === 2) return; // Allow panning bubble
+                    e.preventDefault(); e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); onAnchorDrag && onAnchorDrag(e); 
+                }}>
                     <circle cx={anchorPos.x} cy={anchorPos.y} r={24} fill="transparent" />
                     <circle cx={anchorPos.x} cy={anchorPos.y} r={isHovered ? 7 : 5} fill={color} stroke="white" strokeWidth={2} pointerEvents="none" />
                 </g>
             )}
             {controlPoints && controlPoints.length > 0 && controlPoints.map((cp, idx) => (
-                 <g key={idx} className="cursor-pointer" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); onControlPointDrag && onControlPointDrag(idx, e, cp); }} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onControlPointContextMenu && onControlPointContextMenu(idx, e); }}>
+                 <g key={idx} className="cursor-pointer" onMouseDown={(e) => { 
+                    if (e.button === 2) return; // Allow panning bubble
+                    e.preventDefault(); e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); onControlPointDrag && onControlPointDrag(idx, e, cp); 
+                 }} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onControlPointContextMenu && onControlPointContextMenu(idx, e); }}>
                     <circle cx={cp.x} cy={cp.y} r={20} fill="transparent" />
                     <circle cx={cp.x} cy={cp.y} r={isHovered ? 7 : 5} fill="white" stroke={color} strokeWidth={2} pointerEvents="none" />
                  </g>
@@ -237,7 +251,7 @@ const NotepadMinimap: React.FC<{
     return (
         <div 
             ref={ref}
-            className="absolute bottom-6 right-6 bg-white border-2 border-gray-200 shadow-xl rounded-xl overflow-hidden z-50 cursor-pointer hover:border-indigo-400 transition-colors"
+            className="absolute bottom-16 right-6 bg-white border-2 border-gray-200 shadow-xl rounded-xl overflow-hidden z-50 cursor-pointer hover:border-indigo-400 transition-colors"
             style={{ width: MINIMAP_SIZE, height: MINIMAP_SIZE }}
             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); updateViewport(e.clientX, e.clientY); }}
             onContextMenu={(e) => e.preventDefault()}
@@ -249,6 +263,84 @@ const NotepadMinimap: React.FC<{
                 {stickyNotes.map(note => <div key={note.id} className="absolute rounded-sm" style={{ left: note.x * SCALE, top: note.y * SCALE, width: (note.minimized ? 20 : 100) * SCALE, height: (note.minimized ? 20 : 80) * SCALE, backgroundColor: note.color, border: '1px solid rgba(0,0,0,0.1)' }} />)}
                 <div className="absolute border-2 border-red-500 bg-red-500/10" style={{ left: (-viewport.x / viewport.zoom) * SCALE, top: (-viewport.y / viewport.zoom) * SCALE, width: (containerSize.width / viewport.zoom) * SCALE, height: (containerSize.height / viewport.zoom) * SCALE }} />
             </div>
+        </div>
+    );
+};
+
+// Internal Component: Inline Drawing Area
+const DrawingArea = ({ initialImage, onSave, strokeColor }: { initialImage?: string, onSave: (data: string) => void, strokeColor: string }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if(!canvas) return;
+        // Set higher resolution for better quality
+        const scale = 2;
+        canvas.width = 600; 
+        canvas.height = 400;
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        
+        const ctx = canvas.getContext('2d');
+        if(ctx) {
+            ctx.scale(scale, scale);
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = strokeColor;
+            contextRef.current = ctx;
+            
+            if (initialImage) {
+                const img = new Image();
+                img.onload = () => {
+                    ctx.drawImage(img, 0, 0, 300, 200); // Draw at CSS size
+                };
+                img.src = initialImage;
+            }
+        }
+    }, []);
+
+    useEffect(() => {
+        if(contextRef.current) {
+            contextRef.current.strokeStyle = strokeColor;
+        }
+    }, [strokeColor]);
+
+    const startDrawing = ({ nativeEvent }: React.MouseEvent) => {
+        const { offsetX, offsetY } = nativeEvent;
+        contextRef.current?.beginPath();
+        contextRef.current?.moveTo(offsetX, offsetY);
+        setIsDrawing(true);
+    };
+
+    const draw = ({ nativeEvent }: React.MouseEvent) => {
+        if (!isDrawing) return;
+        const { offsetX, offsetY } = nativeEvent;
+        contextRef.current?.lineTo(offsetX, offsetY);
+        contextRef.current?.stroke();
+    };
+
+    const stopDrawing = () => {
+        contextRef.current?.closePath();
+        setIsDrawing(false);
+        if(canvasRef.current) {
+            onSave(canvasRef.current.toDataURL());
+        }
+    };
+
+    return (
+        <div className="w-full h-full min-h-[200px] bg-white rounded cursor-crosshair border border-gray-200 relative">
+            <canvas 
+                ref={canvasRef}
+                className="w-full h-full"
+                onMouseDown={(e) => { e.stopPropagation(); startDrawing(e); }}
+                onMouseMove={(e) => { e.stopPropagation(); draw(e); }}
+                onMouseUp={(e) => { e.stopPropagation(); stopDrawing(); }}
+                onMouseLeave={stopDrawing}
+            />
+            <div className="absolute top-2 right-2 text-[9px] font-bold text-gray-300 pointer-events-none">DRAWING AREA</div>
         </div>
     );
 };
@@ -280,9 +372,14 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const hasAutoCentered = useRef(false);
     const [viewport, setViewport] = useState<{ x: number, y: number, zoom: number }>(() => ({ x: (window.innerWidth / 2) - (CANVAS_CENTER * INITIAL_ZOOM), y: (window.innerHeight / 2) - (CANVAS_CENTER * INITIAL_ZOOM), zoom: INITIAL_ZOOM }));
     const [containerDimensions, setContainerDimensions] = useState<{ width: number, height: number }>({ width: 0, height: 0 });
-    const [isPanning, setIsPanning] = useState(false);
     const lastMousePos = useRef<{ x: number, y: number }>({ x: 0, y: 0 });
     const cursorRef = useRef<HTMLDivElement>(null);
+    
+    // Selection and Interaction State
+    const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+    const [isRightPanning, setIsRightPanning] = useState(false);
+    const hasRightPanMoved = useRef(false);
+    const [selectionBox, setSelectionBox] = useState<{ start: {x: number, y: number}, current: {x: number, y: number} } | null>(null);
     
     // Tools
     const [tool, setTool] = useState<'pen' | 'highlighter' | 'eraser' | 'select' | 'note'>('select');
@@ -307,9 +404,13 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     }>>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
     
-    // Interaction State
+    // Audio State
+    const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    
+    // Interaction State (continued)
     const [dragTarget, setDragTarget] = useState<{ id: string, type: 'note' | 'anchor' | 'controlPoint' | 'connPoint', index?: number, parentId?: string } | null>(null);
-    const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
     const [selectedConnectionId, setSelectedConnectionId] = useState<{id: string, type: 'noteConnection' | 'anchorConnection', noteId?: string} | null>(null);
     const [linkingState, setLinkingState] = useState<{ sourceId: string, currentPos: { x: number, y: number } } | null>(null);
     const [anchorLinkingState, setAnchorLinkingState] = useState<{ noteId: string, currentPos: { x: number, y: number } } | null>(null);
@@ -319,13 +420,18 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, type: 'connection' | 'canvas' | 'note' | 'controlPoint', id?: string, connectionType?: 'noteConnection' | 'anchorConnection', pointIndex?: number, clickPos?: { x: number, y: number } } | null>(null);
     
+    // Upload Positioning
+    const uploadTriggerPos = useRef<{ x: number, y: number } | null>(null);
+
     // UI Refs
     const [splitRatio, setSplitRatio] = useState(30);
     const splitContainerRef = useRef<HTMLDivElement>(null);
     const canvasContainerRef = useRef<HTMLDivElement>(null);
     const captureContainerRef = useRef<HTMLDivElement>(null); 
+    const contentContainerRef = useRef<HTMLDivElement>(null); // New Ref for inner content
     const isResizing = useRef(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const imageUploadRef = useRef<HTMLInputElement>(null);
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
     const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
     const isDrawing = useRef(false);
@@ -404,14 +510,13 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         });
     }, [annotations, pageNum, renderScale]);
 
-    // --- NEW: Zoom & Gesture Logic with Refs for Conflict-Free interaction ---
+    // Zoom Logic
     const touchStateRef = useRef<{ dist: number; center: {x: number, y: number} } | null>(null);
 
     const handleZoom = useCallback((delta: number, center?: { x: number, y: number }) => {
         setViewport(prev => {
             const newZoom = Math.min(Math.max(prev.zoom + delta, MIN_ZOOM), MAX_ZOOM);
             if (!center || !canvasContainerRef.current) {
-                 // Center zoom
                  const container = canvasContainerRef.current;
                  const w = container ? container.clientWidth : window.innerWidth;
                  const h = container ? container.clientHeight : window.innerHeight;
@@ -439,15 +544,12 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             
             const isPinch = e.ctrlKey;
             const delta = -e.deltaY;
-            
-            // "Rotate wheel to zoom" logic + Pinch support
             let zoomDelta = 0;
             if (isPinch) {
                 zoomDelta = delta * 0.01;
             } else {
                 const sign = Math.sign(delta);
                 zoomDelta = sign * 0.1;
-                // If it's a small delta (trackpad smooth scroll), use proportional
                 if (Math.abs(e.deltaY) < 50) zoomDelta = delta * 0.002;
             }
             
@@ -470,10 +572,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 const t1 = e.touches[0];
                 const t2 = e.touches[1];
                 const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-                const center = {
-                    x: (t1.clientX + t2.clientX) / 2,
-                    y: (t1.clientY + t2.clientY) / 2
-                };
+                const center = { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
                 touchStateRef.current = { dist, center };
             }
         };
@@ -484,11 +583,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 const t1 = e.touches[0];
                 const t2 = e.touches[1];
                 const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-                const center = {
-                    x: (t1.clientX + t2.clientX) / 2,
-                    y: (t1.clientY + t2.clientY) / 2
-                };
-
+                const center = { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
                 const scale = dist / touchStateRef.current.dist;
                 
                 setViewport(prev => {
@@ -498,22 +593,14 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                     const mouseY = center.y - rect.top;
                     const contentX = (mouseX - prev.x) / prev.zoom;
                     const contentY = (mouseY - prev.y) / prev.zoom;
-
-                    return {
-                        x: mouseX - (contentX * newZoom),
-                        y: mouseY - (contentY * newZoom),
-                        zoom: newZoom
-                    };
+                    return { x: mouseX - (contentX * newZoom), y: mouseY - (contentY * newZoom), zoom: newZoom };
                 });
-                
                 touchStateRef.current = { dist, center };
             }
         };
 
         const onTouchEnd = (e: TouchEvent) => {
-            if (e.touches.length < 2) {
-                touchStateRef.current = null;
-            }
+            if (e.touches.length < 2) touchStateRef.current = null;
         };
 
         container.addEventListener('wheel', onWheel, { passive: false });
@@ -572,30 +659,45 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         } 
     };
 
-    // --- DELETION LOGIC ---
-
     const deleteNote = useCallback((id: string, pageId?: number) => {
-        // Removed window.confirm for faster workflow. Undo available.
         let targetPage = pageId;
         if (targetPage === undefined) {
              const foundEntry = Object.entries(stickyNotes).find(([p, notes]) => notes.some(n => n.id === id));
              if (foundEntry) targetPage = Number(foundEntry[0]);
              else targetPage = pageNum;
         }
-
         const currentNotes = stickyNotes[targetPage] || [];
         if (!currentNotes.find(n => n.id === id)) return;
-
         const newNotesMap = { ...stickyNotes };
         newNotesMap[targetPage] = currentNotes.filter(n => n.id !== id);
-
         const currentConns = noteConnections[targetPage] || [];
         const newConnsMap = { ...noteConnections };
         newConnsMap[targetPage] = currentConns.filter(c => c.sourceId !== id && c.targetId !== id);
-
         commitToHistory(annotations, newNotesMap, newConnsMap);
-        if (selectedNoteId === id) setSelectedNoteId(null);
-    }, [stickyNotes, noteConnections, annotations, pageNum, selectedNoteId, commitToHistory]);
+        
+        // Remove from selection set
+        setSelectedNoteIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+        });
+    }, [stickyNotes, noteConnections, annotations, pageNum, commitToHistory]);
+
+    const deleteSelectedNotes = useCallback(() => {
+        if (selectedNoteIds.size === 0) return;
+        
+        const currentNotes = stickyNotes[pageNum] || [];
+        const newNotes = currentNotes.filter(n => !selectedNoteIds.has(n.id));
+        
+        const currentConns = noteConnections[pageNum] || [];
+        const newConns = currentConns.filter(c => !selectedNoteIds.has(c.sourceId) && !selectedNoteIds.has(c.targetId));
+        
+        const newNotesMap = { ...stickyNotes, [pageNum]: newNotes };
+        const newConnsMap = { ...noteConnections, [pageNum]: newConns };
+        
+        commitToHistory(annotations, newNotesMap, newConnsMap);
+        setSelectedNoteIds(new Set());
+    }, [selectedNoteIds, stickyNotes, noteConnections, pageNum, annotations, commitToHistory]);
 
     const deleteConnection = useCallback((connId: string) => {
         const currentConns = noteConnections[pageNum] || [];
@@ -613,255 +715,54 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
          setSelectedConnectionId(null);
     }, [stickyNotes, pageNum, annotations, noteConnections, commitToHistory]);
 
-    const handleDeleteSection = (e: React.MouseEvent, id: string) => {
-        e.preventDefault();
-        e.stopPropagation();
+    // ... (Media Helpers: startRecording, stopRecording, updateTableCell etc. same as before) ...
+    const startRecording = async (noteId: string) => { try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); const mediaRecorder = new MediaRecorder(stream); mediaRecorderRef.current = mediaRecorder; audioChunksRef.current = []; mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); }; mediaRecorder.onstop = () => { const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); const reader = new FileReader(); reader.readAsDataURL(audioBlob); reader.onloadend = () => { const base64data = reader.result as string; updateStickyNote(noteId, { mediaUrl: base64data, contentType: 'audio' }); }; stream.getTracks().forEach(track => track.stop()); }; mediaRecorder.start(); setRecordingNoteId(noteId); } catch (err) { console.error("Mic access denied", err); alert("Microphone access denied."); } };
+    const stopRecording = () => { if (mediaRecorderRef.current && recordingNoteId) { mediaRecorderRef.current.stop(); setRecordingNoteId(null); } };
+    const updateTableCell = (noteId: string, r: number, c: number, value: string) => { const note = stickyNotes[pageNum]?.find(n => n.id === noteId); if (!note || !note.tableData) return; const newData = [...note.tableData]; newData[r] = [...newData[r]]; newData[r][c] = value; updateStickyNote(noteId, { tableData: newData }); };
+    const addTableRow = (noteId: string) => { const note = stickyNotes[pageNum]?.find(n => n.id === noteId); if (!note || !note.tableData) return; const cols = note.tableData[0].length; const newRow = new Array(cols).fill(''); updateStickyNote(noteId, { tableData: [...note.tableData, newRow] }); };
+    const addTableCol = (noteId: string) => { const note = stickyNotes[pageNum]?.find(n => n.id === noteId); if (!note || !note.tableData) return; const newData = note.tableData.map(row => [...row, '']); updateStickyNote(noteId, { tableData: newData }); };
 
-        if (sections.length === 1) {
-             // Reset the last tab instead of deleting
-             const newDefault = { id: 'default', title: 'General Notes', content: '' };
-             const newSections = [newDefault];
-             setSections(newSections);
-             setActiveSectionId(newDefault.id);
-             // Save to history (optional for tab reset, but good for consistency)
-             commitToHistory(annotations, stickyNotes, noteConnections, newSections);
-             return;
-        }
+    const handleDeleteSection = (e: React.MouseEvent, id: string) => { e.preventDefault(); e.stopPropagation(); if (sections.length === 1) { const newDefault = { id: 'default', title: 'General Notes', content: '' }; setSections([newDefault]); setActiveSectionId(newDefault.id); commitToHistory(annotations, stickyNotes, noteConnections, [newDefault]); return; } const index = sections.findIndex(s => s.id === id); const newSections = sections.filter(s => s.id !== id); if (activeSectionId === id) setActiveSectionId(newSections[Math.max(0, index - 1)].id); setSections(newSections); commitToHistory(annotations, stickyNotes, noteConnections, newSections); };
 
-        const index = sections.findIndex(s => s.id === id);
-        const newSections = sections.filter(s => s.id !== id);
-        
-        if (activeSectionId === id) {
-             const newIndex = Math.max(0, index - 1);
-             const nextId = newSections[newIndex].id;
-             setActiveSectionId(nextId);
-        }
-        
-        setSections(newSections);
-        commitToHistory(annotations, stickyNotes, noteConnections, newSections);
-    };
-
-    // Global Key Handler
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).isContentEditable) return;
-            
             if (e.key === 'Delete' || e.key === 'Backspace') {
-                if (selectedNoteId) {
-                    deleteNote(selectedNoteId, pageNum);
-                } else if (selectedConnectionId) {
-                    if (selectedConnectionId.type === 'noteConnection') {
-                        deleteConnection(selectedConnectionId.id);
-                    } else if (selectedConnectionId.type === 'anchorConnection' && selectedConnectionId.noteId) {
-                        deleteAnchorConnection(selectedConnectionId.noteId);
-                    }
+                if (selectedNoteIds.size > 0) deleteSelectedNotes();
+                else if (selectedConnectionId) {
+                    if (selectedConnectionId.type === 'noteConnection') deleteConnection(selectedConnectionId.id);
+                    else if (selectedConnectionId.type === 'anchorConnection' && selectedConnectionId.noteId) deleteAnchorConnection(selectedConnectionId.noteId);
                 }
             }
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-                e.preventDefault();
-                undo();
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-                e.preventDefault();
-                redo();
-            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedNoteId, selectedConnectionId, pageNum, deleteNote, deleteConnection, deleteAnchorConnection, undo, redo]);
+    }, [selectedNoteIds, selectedConnectionId, pageNum, deleteSelectedNotes, deleteConnection, deleteAnchorConnection, undo, redo]);
 
-    const loadIndex = () => {
-        try {
-            const indexStr = localStorage.getItem('singularity-notepad-index');
-            if (indexStr) {
-                const index = JSON.parse(indexStr);
-                index.sort((a: any, b: any) => b.lastModified - a.lastModified);
-                setSavedPads(index);
-                if (index.length > 0 && !activePadId) loadNotepad(index[0].id);
-                else if (index.length === 0 && !activePadId) createNewNotepad();
-            } else createNewNotepad();
-        } catch (e) { console.error("Failed to load index", e); }
-    };
-
-    const createNewNotepad = () => {
-        const newId = generateId();
-        const newPad: SavedNotepadMeta = { id: newId, title: "New Untitled Note", lastModified: Date.now(), hasContent: false };
-        setActivePadId(newId); setTitle(newPad.title); setSections([{ id: 'default', title: 'General Notes', content: '' }]); setActiveSectionId('default'); setSourceName(null); setSourceData(null); setSourceType(null); setPdfDocument(null); setAnnotations({}); setStickyNotes({}); setNoteConnections({}); setPageNum(1); setNumPages(0); setContentDimensions(null); hasAutoCentered.current = false;
-        saveToStorage(newId, newPad.title, [{ id: 'default', title: 'General Notes', content: '' }], 'default', null, null, null, {}, {}, {});
-        const newIndex = [newPad, ...savedPads];
-        setSavedPads(newIndex);
-        localStorage.setItem('singularity-notepad-index', JSON.stringify(newIndex));
-        setHistory([{ annotations: {}, stickyNotes: {}, noteConnections: {}, sections: [{ id: 'default', title: 'General Notes', content: '' }] }]); setHistoryIndex(0);
-    };
-
-    const loadNotepad = async (id: string) => {
-        setIsLoading(true); setSaveStatus('saved'); hasAutoCentered.current = false;
-        try {
-            const dataStr = localStorage.getItem(`singularity-notepad-${id}`);
-            if (dataStr) {
-                const data: FullNotepadData = JSON.parse(dataStr);
-                setActivePadId(data.id); setTitle(data.title);
-                if ((data as any).text && !data.sections) { 
-                    const legacySections = [{ id: 'default', title: 'General Notes', content: (data as any).text }];
-                    setSections(legacySections); 
-                    setActiveSectionId('default'); 
-                    setHistory([{ annotations: data.annotations || {}, stickyNotes: data.stickyNotes || {}, noteConnections: data.noteConnections || {}, sections: legacySections }]);
-                } 
-                else { 
-                    const loadedSections = data.sections || [{ id: 'default', title: 'General Notes', content: '' }];
-                    setSections(loadedSections); 
-                    setActiveSectionId(data.activeSectionId || (loadedSections[0]?.id) || 'default'); 
-                    setHistory([{ annotations: data.annotations || {}, stickyNotes: data.stickyNotes || {}, noteConnections: data.noteConnections || {}, sections: loadedSections }]);
-                }
-                const loadedAnnotations = data.annotations || {};
-                const loadedNotes = data.stickyNotes || {};
-                Object.values(loadedNotes).forEach(pageNotes => { pageNotes.forEach(n => { if(!n.controlPoints) n.controlPoints = []; }); });
-                setAnnotations(loadedAnnotations); setStickyNotes(loadedNotes); setNoteConnections(data.noteConnections || {});
-                setHistoryIndex(0);
-                setSourceName(data.sourceName || null); setSourceType(data.sourceType || null);
-                setAutoCreateTabs(data.autoCreateTabs !== false); 
-                const dbData = await getFile(id);
-                let loadedSourceData = dbData || null;
-                if (!loadedSourceData) { if ((data as any).sourceData) loadedSourceData = (data as any).sourceData; else if ((data as any).pdfBase64) loadedSourceData = (data as any).pdfBase64; }
-                if (loadedSourceData) {
-                    if (data.sourceType === 'IMAGE') { setSourceData(loadedSourceData); setNumPages(1); setPageNum(1); } else {
-                        if (typeof loadedSourceData === 'string') {
-                             const base64 = loadedSourceData.includes(',') ? loadedSourceData.split(',')[1] : loadedSourceData;
-                             const binaryString = window.atob(base64);
-                             const bytes = new Uint8Array(binaryString.length);
-                             for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-                             setSourceData(bytes.buffer);
-                        } else { setSourceData(loadedSourceData); }
-                    }
-                } else { setSourceData(null); setPdfDocument(null); setNumPages(0); setContentDimensions(null); }
-            }
-        } catch (e) { console.error("Failed to load notepad", e); } finally { setIsLoading(false); }
-    };
-
-    const saveCurrentState = useCallback(async () => {
-        if (!activePadId) return;
-        setSaveStatus('saving');
-        try {
-            if (sourceData) await saveFile(activePadId, sourceData);
-            saveToStorage(activePadId, title, sections, activeSectionId, sourceName, null, sourceType, annotations, stickyNotes, noteConnections, autoCreateTabs);
-            setSaveStatus('saved');
-        } catch (e) { console.error("Save failed", e); setSaveStatus('error'); }
-    }, [activePadId, title, sections, activeSectionId, sourceData, sourceName, sourceType, annotations, stickyNotes, noteConnections, autoCreateTabs]);
-
-    const saveToStorage = (id: string, t: string, secs: TextSection[], activeSec: string, sName: string | null, sData: string | null, sType: 'PDF'|'IMAGE'|null, ann: any, sticks: any, conns: any, autoCreate: boolean = true) => {
-        const data: FullNotepadData = { id, title: t, sections: secs, activeSectionId: activeSec, sourceName: sName || undefined, sourceType: sType || undefined, annotations: ann, stickyNotes: sticks, noteConnections: conns, lastModified: Date.now(), autoCreateTabs: autoCreate };
-        localStorage.setItem(`singularity-notepad-${id}`, JSON.stringify(data));
-        const updatedMeta: SavedNotepadMeta = { id, title: t, lastModified: Date.now(), hasContent: !!sName };
-        const currentIndexStr = localStorage.getItem('singularity-notepad-index');
-        let currentIndex: SavedNotepadMeta[] = currentIndexStr ? JSON.parse(currentIndexStr) : [];
-        const existingIdx = currentIndex.findIndex(p => p.id === id);
-        if (existingIdx >= 0) currentIndex[existingIdx] = updatedMeta; else currentIndex.unshift(updatedMeta);
-        currentIndex.sort((a, b) => b.lastModified - a.lastModified);
-        localStorage.setItem('singularity-notepad-index', JSON.stringify(currentIndex));
-        setSavedPads(currentIndex);
-    };
-
+    // ... (Persistence & PDF loading logic kept same) ...
+    const loadIndex = () => { try { const indexStr = localStorage.getItem('singularity-notepad-index'); if (indexStr) { const index = JSON.parse(indexStr); index.sort((a: any, b: any) => b.lastModified - a.lastModified); setSavedPads(index); if (index.length > 0 && !activePadId) loadNotepad(index[0].id); else if (index.length === 0 && !activePadId) createNewNotepad(); } else createNewNotepad(); } catch (e) { console.error("Failed to load index", e); } };
+    const createNewNotepad = () => { const newId = generateId(); const newPad: SavedNotepadMeta = { id: newId, title: "New Untitled Note", lastModified: Date.now(), hasContent: false }; setActivePadId(newId); setTitle(newPad.title); setSections([{ id: 'default', title: 'General Notes', content: '' }]); setActiveSectionId('default'); setSourceName(null); setSourceData(null); setSourceType(null); setPdfDocument(null); setAnnotations({}); setStickyNotes({}); setNoteConnections({}); setPageNum(1); setNumPages(0); setContentDimensions(null); hasAutoCentered.current = false; saveToStorage(newId, newPad.title, [{ id: 'default', title: 'General Notes', content: '' }], 'default', null, null, null, {}, {}, {}); const newIndex = [newPad, ...savedPads]; setSavedPads(newIndex); localStorage.setItem('singularity-notepad-index', JSON.stringify(newIndex)); setHistory([{ annotations: {}, stickyNotes: {}, noteConnections: {}, sections: [{ id: 'default', title: 'General Notes', content: '' }] }]); setHistoryIndex(0); };
+    const loadNotepad = async (id: string) => { setIsLoading(true); setSaveStatus('saved'); hasAutoCentered.current = false; try { const dataStr = localStorage.getItem(`singularity-notepad-${id}`); if (dataStr) { const data: FullNotepadData = JSON.parse(dataStr); setActivePadId(data.id); setTitle(data.title); const loadedSections = data.sections || [{ id: 'default', title: 'General Notes', content: '' }]; setSections(loadedSections); setActiveSectionId(data.activeSectionId || (loadedSections[0]?.id) || 'default'); setHistory([{ annotations: data.annotations || {}, stickyNotes: data.stickyNotes || {}, noteConnections: data.noteConnections || {}, sections: loadedSections }]); const loadedAnnotations = data.annotations || {}; const loadedNotes = data.stickyNotes || {}; Object.values(loadedNotes).forEach(pageNotes => { pageNotes.forEach(n => { if(!n.controlPoints) n.controlPoints = []; }); }); setAnnotations(loadedAnnotations); setStickyNotes(loadedNotes); setNoteConnections(data.noteConnections || {}); setHistoryIndex(0); setSourceName(data.sourceName || null); setSourceType(data.sourceType || null); setAutoCreateTabs(data.autoCreateTabs !== false); const dbData = await getFile(id); let loadedSourceData = dbData || null; if (!loadedSourceData) { if ((data as any).sourceData) loadedSourceData = (data as any).sourceData; else if ((data as any).pdfBase64) loadedSourceData = (data as any).pdfBase64; } if (loadedSourceData) { if (data.sourceType === 'IMAGE') { setSourceData(loadedSourceData); setNumPages(1); setPageNum(1); } else { if (typeof loadedSourceData === 'string') { const base64 = loadedSourceData.includes(',') ? loadedSourceData.split(',')[1] : loadedSourceData; const binaryString = window.atob(base64); const bytes = new Uint8Array(binaryString.length); for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i); setSourceData(bytes.buffer); } else { setSourceData(loadedSourceData); } } } else { setSourceData(null); setPdfDocument(null); setNumPages(0); setContentDimensions(null); } } } catch (e) { console.error("Failed to load notepad", e); } finally { setIsLoading(false); } };
+    const saveCurrentState = useCallback(async () => { if (!activePadId) return; setSaveStatus('saving'); try { if (sourceData) await saveFile(activePadId, sourceData); saveToStorage(activePadId, title, sections, activeSectionId, sourceName, null, sourceType, annotations, stickyNotes, noteConnections, autoCreateTabs); setSaveStatus('saved'); } catch (e) { console.error("Save failed", e); setSaveStatus('error'); } }, [activePadId, title, sections, activeSectionId, sourceData, sourceName, sourceType, annotations, stickyNotes, noteConnections, autoCreateTabs]);
+    const saveToStorage = (id: string, t: string, secs: TextSection[], activeSec: string, sName: string | null, sData: string | null, sType: 'PDF'|'IMAGE'|null, ann: any, sticks: any, conns: any, autoCreate: boolean = true) => { const data: FullNotepadData = { id, title: t, sections: secs, activeSectionId: activeSec, sourceName: sName || undefined, sourceType: sType || undefined, annotations: ann, stickyNotes: sticks, noteConnections: conns, lastModified: Date.now(), autoCreateTabs: autoCreate }; localStorage.setItem(`singularity-notepad-${id}`, JSON.stringify(data)); const updatedMeta: SavedNotepadMeta = { id, title: t, lastModified: Date.now(), hasContent: !!sName }; const currentIndexStr = localStorage.getItem('singularity-notepad-index'); let currentIndex: SavedNotepadMeta[] = currentIndexStr ? JSON.parse(currentIndexStr) : []; const existingIdx = currentIndex.findIndex(p => p.id === id); if (existingIdx >= 0) currentIndex[existingIdx] = updatedMeta; else currentIndex.unshift(updatedMeta); currentIndex.sort((a, b) => b.lastModified - a.lastModified); localStorage.setItem('singularity-notepad-index', JSON.stringify(currentIndex)); setSavedPads(currentIndex); };
     useEffect(() => { const timer = setTimeout(() => { if (activePadId) saveCurrentState(); }, 2000); return () => clearTimeout(timer); }, [sections, activeSectionId, annotations, stickyNotes, noteConnections, title, activePadId, autoCreateTabs]);
-    const activeSection = sections.find(s => s.id === activeSectionId) || sections[0];
     
-    const centerView = useCallback(() => {
-        if (!canvasContainerRef.current || !contentDimensions) return;
-        const rect = canvasContainerRef.current.getBoundingClientRect();
-        const { width: contentW, height: contentH } = contentDimensions;
-        const margin = 60; const availW = rect.width - (margin * 2); const availH = rect.height - (margin * 2);
-        let fitZoom = 0.8;
-        if (contentW > 0 && contentH > 0) { const scaleW = availW / contentW; const scaleH = availH / contentH; fitZoom = Math.min(scaleW, scaleH); fitZoom = Math.min(Math.max(fitZoom, MIN_ZOOM), MAX_ZOOM); }
-        setViewport({ x: (rect.width / 2) - (CANVAS_CENTER * fitZoom), y: (rect.height / 2) - (CANVAS_CENTER * fitZoom), zoom: fitZoom });
-    }, [contentDimensions]);
-
+    // ... (Rendering logic) ...
+    const centerView = useCallback(() => { if (!canvasContainerRef.current || !contentDimensions) return; const rect = canvasContainerRef.current.getBoundingClientRect(); const { width: contentW, height: contentH } = contentDimensions; const margin = 60; const availW = rect.width - (margin * 2); const availH = rect.height - (margin * 2); let fitZoom = 0.8; if (contentW > 0 && contentH > 0) { const scaleW = availW / contentW; const scaleH = availH / contentH; fitZoom = Math.min(scaleW, scaleH); fitZoom = Math.min(Math.max(fitZoom, MIN_ZOOM), MAX_ZOOM); } setViewport({ x: (rect.width / 2) - (CANVAS_CENTER * fitZoom), y: (rect.height / 2) - (CANVAS_CENTER * fitZoom), zoom: fitZoom }); }, [contentDimensions]);
     useEffect(() => { if (contentDimensions && !hasAutoCentered.current && canvasContainerRef.current) { const timer = setTimeout(() => { centerView(); hasAutoCentered.current = true; }, 50); return () => clearTimeout(timer); } }, [contentDimensions, centerView]);
-    
-    useEffect(() => {
-        if (!sourceData || sourceType !== 'PDF') return;
-        const loadPdf = async () => {
-            setPdfError(null);
-            try {
-                const bufferCopy = sourceData instanceof ArrayBuffer ? sourceData.slice(0) : sourceData;
-                let data;
-                if (typeof bufferCopy === 'string') {
-                     const base64 = bufferCopy.includes(',') ? bufferCopy.split(',')[1] : bufferCopy;
-                     const binaryString = window.atob(base64);
-                     data = new Uint8Array(binaryString.length);
-                     for (let i = 0; i < binaryString.length; i++) data[i] = binaryString.charCodeAt(i);
-                } else { data = new Uint8Array(bufferCopy as ArrayBuffer); }
-                const loadingTask = pdfjsLib.getDocument({ data, cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/cmaps/`, cMapPacked: true });
-                const pdf = await loadingTask.promise;
-                setPdfDocument(pdf); setNumPages(pdf.numPages);
-                
-                if (autoCreateTabs) {
-                     const pageTitle = `Page ${1}`;
-                     const exists = sections.some(s => s.title === pageTitle);
-                     if (!exists) {
-                         const newId = generateId();
-                         setSections(prev => {
-                            if (prev.some(s => s.title === pageTitle)) return prev;
-                            return [...prev, { id: newId, title: pageTitle, content: '', pageLink: 1 }];
-                         });
-                     }
-                }
-            } catch (err) { console.error("Error loading PDF:", err); setPdfError("Failed to load PDF."); }
-        };
-        loadPdf();
-    }, [sourceData, sourceType]);
-
+    useEffect(() => { if (!sourceData || sourceType !== 'PDF') return; const loadPdf = async () => { setPdfError(null); try { const bufferCopy = sourceData instanceof ArrayBuffer ? sourceData.slice(0) : sourceData; let data; if (typeof bufferCopy === 'string') { const base64 = bufferCopy.includes(',') ? bufferCopy.split(',')[1] : bufferCopy; const binaryString = window.atob(base64); data = new Uint8Array(binaryString.length); for (let i = 0; i < binaryString.length; i++) data[i] = binaryString.charCodeAt(i); } else { data = new Uint8Array(bufferCopy as ArrayBuffer); } const loadingTask = pdfjsLib.getDocument({ data, cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/cmaps/`, cMapPacked: true }); const pdf = await loadingTask.promise; setPdfDocument(pdf); setNumPages(pdf.numPages); if (autoCreateTabs) { const pageTitle = `Page ${1}`; const exists = sections.some(s => s.title === pageTitle); if (!exists) { const newId = generateId(); setSections(prev => { if (prev.some(s => s.title === pageTitle)) return prev; return [...prev, { id: newId, title: pageTitle, content: '', pageLink: 1 }]; }); } } } catch (err) { console.error("Error loading PDF:", err); setPdfError("Failed to load PDF."); } }; loadPdf(); }, [sourceData, sourceType]);
     useEffect(() => { if (sourceData && sourceType === 'IMAGE') { const img = new Image(); img.onload = () => { setContentDimensions({ width: img.width, height: img.height }); setNumPages(1); setPageNum(1); }; img.src = sourceData as string; } }, [sourceData, sourceType]);
     useEffect(() => { if (isDrawing.current) return; const targetScale = Math.max(1.5, viewport.zoom * 1.5); const timer = setTimeout(() => { setRenderScale(targetScale); }, 200); return () => clearTimeout(timer); }, [viewport.zoom]);
-
-    useEffect(() => {
-        if (sourceType !== 'PDF' || !pdfDocument || !pdfCanvasRef.current) return;
-        let isCancelled = false;
-        const renderPage = async () => {
-            if (renderTaskRef.current) { try { renderTaskRef.current.cancel(); } catch {} renderTaskRef.current = null; }
-            try {
-                const page = await pdfDocument.getPage(pageNum);
-                if (isCancelled) return;
-                const unscaledViewport = page.getViewport({ scale: 1 });
-                setContentDimensions({ width: unscaledViewport.width, height: unscaledViewport.height });
-                const pageViewport = page.getViewport({ scale: renderScale });
-                const canvas = pdfCanvasRef.current!; const context = canvas.getContext('2d')!;
-                canvas.height = pageViewport.height; canvas.width = pageViewport.width;
-                if (annotationCanvasRef.current) { annotationCanvasRef.current.height = pageViewport.height; annotationCanvasRef.current.width = pageViewport.width; redrawAnnotations(); }
-                const renderContext = { canvasContext: context, viewport: pageViewport };
-                const task = page.render(renderContext as any);
-                renderTaskRef.current = task;
-                await task.promise;
-                renderTaskRef.current = null;
-            } catch (err: any) { if(err.name !== 'RenderingCancelledException') console.error("Page Render Error", err); }
-        };
-        renderPage();
-        return () => { isCancelled = true; if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {} };
-    }, [pdfDocument, pageNum, renderScale, sourceType]);
-
+    useEffect(() => { if (sourceType !== 'PDF' || !pdfDocument || !pdfCanvasRef.current) return; let isCancelled = false; const renderPage = async () => { if (renderTaskRef.current) { try { renderTaskRef.current.cancel(); } catch {} renderTaskRef.current = null; } try { const page = await pdfDocument.getPage(pageNum); if (isCancelled) return; const unscaledViewport = page.getViewport({ scale: 1 }); setContentDimensions({ width: unscaledViewport.width, height: unscaledViewport.height }); const pageViewport = page.getViewport({ scale: renderScale }); const canvas = pdfCanvasRef.current!; const context = canvas.getContext('2d')!; canvas.height = pageViewport.height; canvas.width = pageViewport.width; if (annotationCanvasRef.current) { annotationCanvasRef.current.height = pageViewport.height; annotationCanvasRef.current.width = pageViewport.width; redrawAnnotations(); } const renderContext = { canvasContext: context, viewport: pageViewport }; const task = page.render(renderContext as any); renderTaskRef.current = task; await task.promise; renderTaskRef.current = null; } catch (err: any) { if(err.name !== 'RenderingCancelledException') console.error("Page Render Error", err); } }; renderPage(); return () => { isCancelled = true; if (renderTaskRef.current) try { renderTaskRef.current.cancel(); } catch {} }; }, [pdfDocument, pageNum, renderScale, sourceType]);
     useEffect(() => { if (sourceType === 'IMAGE' && contentDimensions && annotationCanvasRef.current) { const w = contentDimensions.width * renderScale; const h = contentDimensions.height * renderScale; annotationCanvasRef.current.width = w; annotationCanvasRef.current.height = h; redrawAnnotations(); } }, [contentDimensions, renderScale, sourceType]);
+    
+    // File Upload Handlers
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; setSourceName(file.name); setStickyNotes({}); setAnnotations({}); setSections([{ id: 'default', title: 'General Notes', content: '' }]); setActiveSectionId('default'); setContentDimensions(null); hasAutoCentered.current = false; setHistory([{ annotations: {}, stickyNotes: {}, noteConnections: {}, sections: [{ id: 'default', title: 'General Notes', content: '' }] }]); setHistoryIndex(0); if (file.type === 'application/pdf') { const buffer = await file.arrayBuffer(); setSourceType('PDF'); setSourceData(buffer); setPdfDocument(null); setPageNum(1); } else if (file.type.startsWith('image/')) { const reader = new FileReader(); reader.onload = (ev) => { if (ev.target?.result) { setSourceType('IMAGE'); setSourceData(ev.target.result as string); setPageNum(1); setNumPages(1); } }; reader.readAsDataURL(file); } else { alert("Unsupported file type."); } e.target.value = ''; setTimeout(saveCurrentState, 100); };
+    const handleExport = async () => { if (!captureContainerRef.current) return; setIsLoading(true); try { let minX = CANVAS_CENTER, minY = CANVAS_CENTER, maxX = CANVAS_CENTER, maxY = CANVAS_CENTER; if (contentDimensions) { const halfW = contentDimensions.width / 2; const halfH = contentDimensions.height / 2; minX = Math.min(minX, CANVAS_CENTER - halfW); minY = Math.min(minY, CANVAS_CENTER - halfH); maxX = Math.max(maxX, CANVAS_CENTER + halfW); maxY = Math.max(maxY, CANVAS_CENTER + halfH); } const notes = stickyNotes[pageNum] || []; notes.forEach(note => { minX = Math.min(minX, note.x); minY = Math.min(minY, note.y); maxX = Math.max(maxX, note.x + (note.minimized ? 40 : 220)); maxY = Math.max(maxY, note.y + (note.minimized ? 40 : 200)); }); const padding = 50; const cropX = minX - padding; const cropY = minY - padding; const cropWidth = (maxX - minX) + (padding * 2); const cropHeight = (maxY - minY) + (padding * 2); await new Promise(r => setTimeout(r, 50)); const dataUrl = await htmlToImage.toPng(captureContainerRef.current, { width: cropWidth, height: cropHeight, style: { transform: `translate(${-cropX}px, ${-cropY}px) scale(1)`, transformOrigin: 'top left', width: `${cropWidth}px`, height: `${cropHeight}px`, backgroundColor: '#e5e7eb' }, pixelRatio: 2, skipAutoScale: true, fontEmbedCSS: '', cacheBust: true }); const link = document.createElement('a'); link.download = `Notepad_Page_${pageNum}.png`; link.href = dataUrl; link.click(); } catch (err) { console.error("Export failed", err); alert("Export failed. Please try again."); } finally { setIsLoading(false); } };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]; if (!file) return;
-        setSourceName(file.name); setStickyNotes({}); setAnnotations({}); setSections([{ id: 'default', title: 'General Notes', content: '' }]); setActiveSectionId('default'); setContentDimensions(null); hasAutoCentered.current = false; setHistory([{ annotations: {}, stickyNotes: {}, noteConnections: {}, sections: [{ id: 'default', title: 'General Notes', content: '' }] }]); setHistoryIndex(0);
-        if (file.type === 'application/pdf') { const buffer = await file.arrayBuffer(); setSourceType('PDF'); setSourceData(buffer); setPdfDocument(null); setPageNum(1); } 
-        else if (file.type.startsWith('image/')) { const reader = new FileReader(); reader.onload = (ev) => { if (ev.target?.result) { setSourceType('IMAGE'); setSourceData(ev.target.result as string); setPageNum(1); setNumPages(1); } }; reader.readAsDataURL(file); } 
-        else { alert("Unsupported file type."); }
-        e.target.value = ''; setTimeout(saveCurrentState, 100);
-    };
-
-    const handleExport = async () => {
-        if (!captureContainerRef.current) return;
-        setIsLoading(true);
-        try {
-             let minX = CANVAS_CENTER, minY = CANVAS_CENTER, maxX = CANVAS_CENTER, maxY = CANVAS_CENTER;
-             if (contentDimensions) { const halfW = contentDimensions.width / 2; const halfH = contentDimensions.height / 2; minX = Math.min(minX, CANVAS_CENTER - halfW); minY = Math.min(minY, CANVAS_CENTER - halfH); maxX = Math.max(maxX, CANVAS_CENTER + halfW); maxY = Math.max(maxY, CANVAS_CENTER + halfH); }
-             const notes = stickyNotes[pageNum] || [];
-             notes.forEach(note => { minX = Math.min(minX, note.x); minY = Math.min(minY, note.y); maxX = Math.max(maxX, note.x + (note.minimized ? 40 : 220)); maxY = Math.max(maxY, note.y + (note.minimized ? 40 : 200)); });
-             const padding = 50; const cropX = minX - padding; const cropY = minY - padding; const cropWidth = (maxX - minX) + (padding * 2); const cropHeight = (maxY - minY) + (padding * 2);
-             await new Promise(r => setTimeout(r, 50));
-             const dataUrl = await htmlToImage.toPng(captureContainerRef.current, { width: cropWidth, height: cropHeight, style: { transform: `translate(${-cropX}px, ${-cropY}px) scale(1)`, transformOrigin: 'top left', width: `${cropWidth}px`, height: `${cropHeight}px`, backgroundColor: '#e5e7eb' }, pixelRatio: 2, skipAutoScale: true, fontEmbedCSS: '', cacheBust: true });
-             const link = document.createElement('a'); link.download = `Notepad_Page_${pageNum}.png`; link.href = dataUrl; link.click();
-        } catch (err) { console.error("Export failed", err); alert("Export failed. Please try again."); } finally { setIsLoading(false); }
-    };
+    // --- Interaction Handlers ---
 
     const handleElementMouseDown = useCallback((e: React.MouseEvent, target: { id: string, type: 'note' | 'anchor' | 'controlPoint' | 'connPoint', index?: number, parentId?: string }, elementPos: { x: number, y: number }) => {
         e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); e.preventDefault(); 
@@ -871,11 +772,12 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             dragStartOffset.current = { x: ((e.clientX - cachedCanvasRect.current.left) - viewport.x) / viewport.zoom - elementPos.x, y: ((e.clientY - cachedCanvasRect.current.top) - viewport.y) / viewport.zoom - elementPos.y };
         }
         setDragTarget(target);
-        if (target.type === 'note') setSelectedNoteId(target.id);
+        // Single selection handled in handleNoteMouseDown, but clearing others might be needed if not multi-select
+        // Logic moved to Note's own handler
         setSelectedConnectionId(null);
     }, [viewport]);
 
-    const addNoteAt = (x: number, y: number, relativeToPdf: boolean = false) => {
+    const addNoteAt = (x: number, y: number, relativeToPdf: boolean = false, type: 'text' | 'image' | 'audio' | 'table' | 'drawing' = 'text', initialData?: any) => {
         if (!canvasContainerRef.current) return;
         const rect = canvasContainerRef.current.getBoundingClientRect();
         const canvasX = ((x - rect.left) - viewport.x) / viewport.zoom;
@@ -889,9 +791,24 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             }
         }
         const newId = generateId();
-        const newNote: StickyNote = { id: newId, x: relativeToPdf ? canvasX + 50 : canvasX, y: relativeToPdf ? canvasY + 50 : canvasY, text: '', color: NOTE_COLORS[0], anchor: anchor, minimized: false, page: pageNum, controlPoints: [] };
+        const newNote: StickyNote = { 
+            id: newId, 
+            x: relativeToPdf ? canvasX + 50 : canvasX, 
+            y: relativeToPdf ? canvasY + 50 : canvasY, 
+            text: initialData?.text || '', 
+            color: NOTE_COLORS[0], 
+            anchor: anchor, 
+            minimized: false, 
+            page: pageNum, 
+            controlPoints: [],
+            contentType: type,
+            mediaUrl: initialData?.mediaUrl,
+            isPlaceholder: initialData?.isPlaceholder,
+            tableData: initialData?.tableData || [['Header', 'Value'], ['', '']]
+        };
         commitToHistory(annotations, { ...stickyNotes, [pageNum]: [...(stickyNotes[pageNum] || []), newNote] }, noteConnections);
-        setSelectedNoteId(newId); setTool('select');
+        setSelectedNoteIds(new Set([newId]));
+        setTool('select');
     };
 
     const addChildNote = (parentId: string) => {
@@ -899,105 +816,76 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         const parent = pageNotes.find(n => n.id === parentId);
         if (!parent) return;
         const newId = generateId();
-        const newNote: StickyNote = { id: newId, x: parent.x + 300, y: parent.y, text: '', color: parent.color, anchor: null, minimized: false, page: pageNum, controlPoints: [] };
+        const newNote: StickyNote = { id: newId, x: parent.x + 300, y: parent.y, text: '', color: parent.color, anchor: null, minimized: false, page: pageNum, controlPoints: [], contentType: 'text' };
         const newConn: NoteConnection = { id: generateConnId(), sourceId: parentId, targetId: newId, color: '#ff0000', style: 'curved' }; 
         commitToHistory(annotations, { ...stickyNotes, [pageNum]: [...pageNotes, newNote] }, { ...noteConnections, [pageNum]: [...(noteConnections[pageNum] || []), newConn] });
-        setSelectedNoteId(newId);
+        setSelectedNoteIds(new Set([newId]));
     };
 
     const updateStickyNote = (id: string, updates: Partial<StickyNote>) => { setStickyNotes({ ...stickyNotes, [pageNum]: (stickyNotes[pageNum] || []).map(n => n.id === id ? { ...n, ...updates } : n) }); };
     
-    const startLinking = (e: React.MouseEvent, sourceId: string) => {
-        e.stopPropagation(); e.preventDefault();
-        const rect = canvasContainerRef.current?.getBoundingClientRect();
-        if(rect) {
-             const canvasX = ((e.clientX - rect.left) - viewport.x) / viewport.zoom;
-             const canvasY = ((e.clientY - rect.top) - viewport.y) / viewport.zoom;
-             setLinkingState({ sourceId, currentPos: { x: canvasX, y: canvasY } });
-        }
-    };
-    const startAnchorLinking = (noteId: string) => {
-        const rect = canvasContainerRef.current?.getBoundingClientRect();
-        if(rect) {
-             const note = stickyNotes[pageNum]?.find(n => n.id === noteId);
-             if(note) setAnchorLinkingState({ noteId, currentPos: { x: note.x + (note.minimized ? 20 : 110), y: note.y + 20 } });
-        }
-    };
-
-    const handleConnectionContextMenu = (e: React.MouseEvent, id: string, type: 'noteConnection' | 'anchorConnection') => {
-        e.preventDefault(); e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, type: 'connection', id, connectionType: type });
-    };
-
-    const handleConnectionClick = (e: React.MouseEvent, id: string, type: 'noteConnection' | 'anchorConnection', noteId?: string) => {
-        e.stopPropagation();
-        setSelectedConnectionId({ id, type, noteId });
-        setSelectedNoteId(null);
-    };
+    const startLinking = (e: React.MouseEvent, sourceId: string) => { e.stopPropagation(); e.preventDefault(); const rect = canvasContainerRef.current?.getBoundingClientRect(); if(rect) { const canvasX = ((e.clientX - rect.left) - viewport.x) / viewport.zoom; const canvasY = ((e.clientY - rect.top) - viewport.y) / viewport.zoom; setLinkingState({ sourceId, currentPos: { x: canvasX, y: canvasY } }); } };
+    const startAnchorLinking = (noteId: string) => { const rect = canvasContainerRef.current?.getBoundingClientRect(); if(rect) { const note = stickyNotes[pageNum]?.find(n => n.id === noteId); if(note) setAnchorLinkingState({ noteId, currentPos: { x: note.x + (note.minimized ? 20 : 110), y: note.y + 20 } }); } };
+    const handleConnectionContextMenu = (e: React.MouseEvent, id: string, type: 'noteConnection' | 'anchorConnection') => { e.preventDefault(); e.stopPropagation(); if (hasRightPanMoved.current) return; setContextMenu({ x: e.clientX, y: e.clientY, type: 'connection', id, connectionType: type }); };
+    const handleConnectionClick = (e: React.MouseEvent, id: string, type: 'noteConnection' | 'anchorConnection', noteId?: string) => { e.stopPropagation(); setSelectedConnectionId({ id, type, noteId }); setSelectedNoteIds(new Set()); };
+    const handleSnipText = () => { const selection = window.getSelection(); if (selection && selection.toString().trim().length > 0) { if (contextMenu) { addNoteAt(contextMenu.x, contextMenu.y, true, 'text', { text: selection.toString() }); } } else { alert("Select text on the PDF/Canvas first, then right click > Snip Text."); } };
+    const handleImageUpload = (id?: string) => { if (imageUploadRef.current) { imageUploadRef.current.click(); if(id) setSelectedNoteIds(new Set([id])); else setSelectedNoteIds(new Set()); } };
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => { if (ev.target?.result) { const selectedId = Array.from(selectedNoteIds)[0]; if (selectedId && stickyNotes[pageNum].find(n => n.id === selectedId)?.isPlaceholder) { updateStickyNote(selectedId, { contentType: 'image', mediaUrl: ev.target.result as string, isPlaceholder: false }); } else if (uploadTriggerPos.current) { addNoteAt(uploadTriggerPos.current.x, uploadTriggerPos.current.y, true, 'image', { mediaUrl: ev.target.result as string }); uploadTriggerPos.current = null; } else if (contextMenu) { addNoteAt(contextMenu.x, contextMenu.y, true, 'image', { mediaUrl: ev.target.result as string }); } } }; reader.readAsDataURL(file); } e.target.value = ''; };
+    const handlePaste = async () => { try { try { const permission = await navigator.permissions.query({ name: 'clipboard-read' as any }); if (permission.state === 'denied') { throw new Error("Clipboard permission denied"); } } catch (e) {} const items = await navigator.clipboard.read(); for (const item of items) { if (item.types.includes('image/png') || item.types.includes('image/jpeg')) { const blob = await item.getType(item.types[0]); const reader = new FileReader(); reader.onload = (e) => { if (e.target?.result && contextMenu) { addNoteAt(contextMenu.x, contextMenu.y, true, 'image', { mediaUrl: e.target.result as string }); } }; reader.readAsDataURL(blob); } else if (item.types.includes('text/plain')) { const blob = await item.getType('text/plain'); const text = await blob.text(); if (text && contextMenu) { addNoteAt(contextMenu.x, contextMenu.y, true, 'text', { text }); } } } } catch (err) { console.error("Paste failed", err); try { const text = await navigator.clipboard.readText(); if (text && contextMenu) addNoteAt(contextMenu.x, contextMenu.y, true, 'text', { text }); } catch (e) { alert("Could not access clipboard. Please use Ctrl+V to paste."); } } };
+    useEffect(() => { const handleGlobalPaste = (e: ClipboardEvent) => { if ((e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).isContentEditable) return; e.preventDefault(); const items = e.clipboardData?.items; if (!items) return; const x = mousePosRef.current.x > 0 ? mousePosRef.current.x : window.innerWidth / 2; const y = mousePosRef.current.y > 0 ? mousePosRef.current.y : window.innerHeight / 2; for (let i = 0; i < items.length; i++) { if (items[i].type.indexOf('image') !== -1) { const blob = items[i].getAsFile(); if (blob) { const reader = new FileReader(); reader.onload = (event) => { if (event.target?.result) { addNoteAt(x, y, true, 'image', { mediaUrl: event.target.result as string }); } }; reader.readAsDataURL(blob); } } else if (items[i].type.indexOf('text/plain') !== -1) { items[i].getAsString((text) => { if (text) addNoteAt(x, y, true, 'text', { text }); }); } } }; window.addEventListener('paste', handleGlobalPaste); return () => window.removeEventListener('paste', handleGlobalPaste); }, [viewport, pageNum]);
 
     const handleContextMenuAction = (action: string, payload?: any) => {
         if (!contextMenu) return;
         const { id, type, connectionType, pointIndex, clickPos } = contextMenu;
         
-        if (type === 'canvas' && action === 'create_note') {
-            addNoteAt(contextMenu.x, contextMenu.y, true);
+        if (type === 'canvas') {
+            if (action === 'create_note') addNoteAt(contextMenu.x, contextMenu.y, true);
+            if (action === 'snip_text') handleSnipText();
+            if (action === 'upload_image') { uploadTriggerPos.current = { x: contextMenu.x, y: contextMenu.y }; handleImageUpload(); }
+            if (action === 'create_image_placeholder') addNoteAt(contextMenu.x, contextMenu.y, true, 'image', { isPlaceholder: true });
+            if (action === 'add_audio') addNoteAt(contextMenu.x, contextMenu.y, true, 'audio');
+            if (action === 'add_table') addNoteAt(contextMenu.x, contextMenu.y, true, 'table');
+            if (action === 'add_drawing') addNoteAt(contextMenu.x, contextMenu.y, true, 'drawing');
+            if (action === 'paste') handlePaste();
+            if (action === 'reset_view') centerView();
         } else if (type === 'note' && id) {
             if (action === 'color') commitToHistory(annotations, { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, color: payload } : n) }, noteConnections);
             else if (action === 'add_child') addChildNote(id);
             else if (action === 'add_anchor') startAnchorLinking(id);
             else if (action === 'delete') deleteNote(id);
         } else if (type === 'connection' && id) {
-             if (connectionType === 'anchorConnection') {
-                 const note = stickyNotes[pageNum]?.find(n => n.id === id);
-                 if (note) {
-                     if (action === 'connection_color') commitToHistory(annotations, { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, connectionColor: payload } : n) }, noteConnections);
-                     else if (action === 'connection_style') commitToHistory(annotations, { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, connectionStyle: payload } : n) }, noteConnections);
-                     else if (action === 'add_point') {
-                         const currentPoints = note.controlPoints || [];
-                         const newPoint = clickPos || { x: note.x, y: note.y }; 
-                         commitToHistory(annotations, { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, controlPoints: [...currentPoints, newPoint] } : n) }, noteConnections);
-                     }
-                     else if (action === 'delete_link') deleteAnchorConnection(id);
-                 }
-             } else if (connectionType === 'noteConnection') {
-                 const pageConns = noteConnections[pageNum] || [];
-                 if (pageConns.find(c => c.id === id)) {
-                     if (action === 'connection_color') commitToHistory(annotations, stickyNotes, { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, color: payload } : c) });
-                     else if (action === 'connection_style') commitToHistory(annotations, stickyNotes, { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, style: payload } : c) });
-                     else if (action === 'add_point') {
-                          const newPoint = clickPos || { x: 0, y: 0 };
-                          commitToHistory(annotations, stickyNotes, { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, controlPoints: [...(c.controlPoints||[]), newPoint] } : c) });
-                     }
-                     else if (action === 'delete_link') deleteConnection(id);
-                 }
-             }
-        } else if (type === 'controlPoint' && id && pointIndex !== undefined) {
-             if (action === 'delete_point') {
-                  // No confirm here, can undo
-                  const note = stickyNotes[pageNum]?.find(n => n.id === id);
-                  if (note) {
-                      const newPoints = [...(note.controlPoints || [])]; newPoints.splice(pointIndex, 1);
-                      const newNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, controlPoints: newPoints } : n) };
-                      setStickyNotes(newNotes);
-                      commitToHistory(annotations, newNotes, noteConnections);
-                  } else {
-                      const pageConns = noteConnections[pageNum] || [];
-                      const conn = pageConns.find(c => c.id === id);
-                      if (conn && conn.controlPoints) {
-                          const newPoints = [...conn.controlPoints]; newPoints.splice(pointIndex, 1);
-                          const newConns = { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, controlPoints: newPoints } : c) };
-                          setNoteConnections(newConns);
-                          commitToHistory(annotations, stickyNotes, newConns);
-                      }
-                  }
-             }
-        }
+             if (connectionType === 'anchorConnection') { const note = stickyNotes[pageNum]?.find(n => n.id === id); if (note) { if (action === 'connection_color') commitToHistory(annotations, { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, connectionColor: payload } : n) }, noteConnections); else if (action === 'connection_style') commitToHistory(annotations, { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, connectionStyle: payload } : n) }, noteConnections); else if (action === 'add_point') { const currentPoints = note.controlPoints || []; const newPoint = clickPos || { x: note.x, y: note.y }; commitToHistory(annotations, { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, controlPoints: [...currentPoints, newPoint] } : n) }, noteConnections); } else if (action === 'delete_link') deleteAnchorConnection(id); } } else if (connectionType === 'noteConnection') { const pageConns = noteConnections[pageNum] || []; if (pageConns.find(c => c.id === id)) { if (action === 'connection_color') commitToHistory(annotations, stickyNotes, { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, color: payload } : c) }); else if (action === 'connection_style') commitToHistory(annotations, stickyNotes, { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, style: payload } : c) }); else if (action === 'add_point') { const newPoint = clickPos || { x: 0, y: 0 }; commitToHistory(annotations, stickyNotes, { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, controlPoints: [...(c.controlPoints||[]), newPoint] } : c) }); } else if (action === 'delete_link') deleteConnection(id); } }
+        } else if (type === 'controlPoint' && id && pointIndex !== undefined) { if (action === 'delete_point') { const note = stickyNotes[pageNum]?.find(n => n.id === id); if (note) { const newPoints = [...(note.controlPoints || [])]; newPoints.splice(pointIndex, 1); const newNotes = { ...stickyNotes, [pageNum]: (stickyNotes[pageNum]||[]).map(n => n.id === id ? { ...n, controlPoints: newPoints } : n) }; setStickyNotes(newNotes); commitToHistory(annotations, newNotes, noteConnections); } else { const pageConns = noteConnections[pageNum] || []; const conn = pageConns.find(c => c.id === id); if (conn && conn.controlPoints) { const newPoints = [...conn.controlPoints]; newPoints.splice(pointIndex, 1); const newConns = { ...noteConnections, [pageNum]: pageConns.map(c => c.id === id ? { ...c, controlPoints: newPoints } : c) }; setNoteConnections(newConns); commitToHistory(annotations, stickyNotes, newConns); } } } }
         setContextMenu(null);
+    };
+
+    const handleCanvasMouseDown = (e: React.MouseEvent) => {
+        setContextMenu(null); 
+        hasRightPanMoved.current = false; // Reset on any click
+        // Right Click Pan
+        if (e.button === 2 || e.button === 1) { // Right or Middle
+            setIsRightPanning(true);
+            lastMousePos.current = { x: e.clientX, y: e.clientY };
+            return;
+        }
+
+        // Left Click Actions
+        if (e.button === 0) {
+            if (tool === 'select') {
+                if (e.target === captureContainerRef.current || e.target === canvasContainerRef.current) {
+                    if (!e.ctrlKey) setSelectedNoteIds(new Set()); // Clear selection if not Multi-Select
+                    setSelectionBox({ start: { x: e.clientX, y: e.clientY }, current: { x: e.clientX, y: e.clientY } });
+                }
+            } else if (tool === 'note') {
+                addNoteAt(e.clientX, e.clientY, true);
+            }
+        }
     };
 
     const handleCanvasMouseMove = (e: React.MouseEvent) => {
         mousePosRef.current = { x: e.clientX, y: e.clientY };
         
+        // Cursor Follower
         if (cursorRef.current && canvasContainerRef.current) {
             const rect = canvasContainerRef.current.getBoundingClientRect();
             if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
@@ -1009,21 +897,44 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             }
         }
 
+        // Panning (Universal or Tool)
+        if (isRightPanning) {
+            const dx = e.clientX - lastMousePos.current.x;
+            const dy = e.clientY - lastMousePos.current.y;
+            
+            if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+                 hasRightPanMoved.current = true;
+            }
+
+            setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+            lastMousePos.current = { x: e.clientX, y: e.clientY };
+            return; 
+        }
+
+        // Linking Visuals
         if (linkingState && canvasContainerRef.current) {
              const rect = canvasContainerRef.current.getBoundingClientRect();
              setLinkingState({ ...linkingState, currentPos: { x: ((e.clientX - rect.left) - viewport.x) / viewport.zoom, y: ((e.clientY - rect.top) - viewport.y) / viewport.zoom } });
         } else if (anchorLinkingState && canvasContainerRef.current) {
              const rect = canvasContainerRef.current.getBoundingClientRect();
              setAnchorLinkingState({ ...anchorLinkingState, currentPos: { x: ((e.clientX - rect.left) - viewport.x) / viewport.zoom, y: ((e.clientY - rect.top) - viewport.y) / viewport.zoom } });
-        } else if (isPanning) {
-            const currentLastPos = lastMousePos.current;
-            const dx = e.clientX - currentLastPos.x; const dy = e.clientY - currentLastPos.y;
-            setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
-            lastMousePos.current = { x: e.clientX, y: e.clientY }; 
         }
+
+        // Selection Box
+        if (selectionBox) {
+            setSelectionBox(prev => prev ? { ...prev, current: { x: e.clientX, y: e.clientY } } : null);
+        }
+
+        // Drawing - Only if dragging went outside
+        if (['pen', 'highlighter', 'eraser'].includes(tool) && isDrawing.current) {
+            // Manually call content mouse move to handle drag-outside behavior, but now logic handles stopPropagation inside so it's safe
+            handleContentMouseMove(e);
+        }
+        
         if (dragTarget) e.preventDefault();
     };
 
+    // Update Drag Logic for Multi-Select
     useEffect(() => {
         if (!dragTarget) return;
         let animationFrameId: number;
@@ -1034,55 +945,69 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 const canvasY = ((mousePosRef.current.y - rect.top) - viewport.y) / viewport.zoom;
                 const dragOffset = dragStartOffset.current;
                 
-                if (dragTarget.type === 'note' || dragTarget.type === 'anchor' || dragTarget.type === 'controlPoint') {
+                // Multi-Note Dragging
+                if (dragTarget.type === 'note') {
                     setStickyNotes(prevNotes => {
                          const pageNotes = prevNotes[pageNum] || [];
-                         let changed = false;
+                         const targetNote = pageNotes.find(n => n.id === dragTarget.id);
+                         if (!targetNote) return prevNotes;
+
+                         // Calculate Delta based on the dragged note
+                         const newTargetX = canvasX - dragOffset.x;
+                         const newTargetY = canvasY - dragOffset.y;
+                         const dx = newTargetX - targetNote.x;
+                         const dy = newTargetY - targetNote.y;
+
+                         const notesToMove = selectedNoteIds.has(dragTarget.id) ? Array.from(selectedNoteIds) : [dragTarget.id];
+                         
                          const newPageNotes = pageNotes.map(n => {
-                             if (n.id !== dragTarget.id) return n;
-                             if (dragTarget.type === 'note') {
-                                const newX = canvasX - dragOffset.x; const newY = canvasY - dragOffset.y;
-                                if (n.x !== newX || n.y !== newY) { changed = true; n.x = newX; n.y = newY; }
-                             } else if (dragTarget.type === 'anchor' && contentDimensions) {
-                                const newX = canvasX - dragOffset.x; const newY = canvasY - dragOffset.y;
-                                const contentW = contentDimensions.width; const contentH = contentDimensions.height;
-                                const topLeftX = CANVAS_CENTER - contentW / 2; const topLeftY = CANVAS_CENTER - contentH / 2;
-                                const anchorX = Math.max(0, Math.min(100, ((newX - topLeftX) / contentW) * 100));
-                                const anchorY = Math.max(0, Math.min(100, ((newY - topLeftY) / contentH) * 100));
-                                if (!n.anchor || n.anchor.x !== anchorX || n.anchor.y !== anchorY) { changed = true; n.anchor = { x: anchorX, y: anchorY }; }
-                             } else if (dragTarget.type === 'controlPoint' && dragTarget.index !== undefined) {
-                                const newX = canvasX - dragOffset.x; const newY = canvasY - dragOffset.y;
-                                if(n.controlPoints[dragTarget.index]) {
-                                   if (n.controlPoints[dragTarget.index].x !== newX || n.controlPoints[dragTarget.index].y !== newY) {
-                                       changed = true; const newPts = [...n.controlPoints]; newPts[dragTarget.index] = { x: newX, y: newY }; n.controlPoints = newPts;
-                                   }
-                                }
+                             if (notesToMove.includes(n.id)) {
+                                 return { ...n, x: n.x + dx, y: n.y + dy };
                              }
                              return n;
                          });
-                         return changed ? { ...prevNotes, [pageNum]: newPageNotes } : prevNotes;
+                         return { ...prevNotes, [pageNum]: newPageNotes };
                      });
                 }
                 
-                if (dragTarget.type === 'connPoint' && dragTarget.index !== undefined) {
+                // Other Drag Types (Anchor, Control Point) - Single Item
+                else if (dragTarget.type === 'anchor' && contentDimensions) {
+                    setStickyNotes(prevNotes => {
+                        const pageNotes = prevNotes[pageNum] || [];
+                        const newPageNotes = pageNotes.map(n => {
+                            if (n.id !== dragTarget.id) return n;
+                            const newX = canvasX - dragOffset.x; const newY = canvasY - dragOffset.y;
+                            const contentW = contentDimensions.width; const contentH = contentDimensions.height;
+                            const topLeftX = CANVAS_CENTER - contentW / 2; const topLeftY = CANVAS_CENTER - contentH / 2;
+                            const anchorX = Math.max(0, Math.min(100, ((newX - topLeftX) / contentW) * 100));
+                            const anchorY = Math.max(0, Math.min(100, ((newY - topLeftY) / contentH) * 100));
+                            return { ...n, anchor: { x: anchorX, y: anchorY } };
+                        });
+                        return { ...prevNotes, [pageNum]: newPageNotes };
+                    });
+                }
+                else if (dragTarget.type === 'controlPoint' && dragTarget.index !== undefined) {
+                    setStickyNotes(prevNotes => {
+                        const pageNotes = prevNotes[pageNum] || [];
+                        const newPageNotes = pageNotes.map(n => {
+                            if (n.id !== dragTarget.id) return n;
+                            const newX = canvasX - dragOffset.x; const newY = canvasY - dragOffset.y;
+                            const newPts = [...n.controlPoints]; newPts[dragTarget.index!] = { x: newX, y: newY };
+                            return { ...n, controlPoints: newPts };
+                        });
+                        return { ...prevNotes, [pageNum]: newPageNotes };
+                    });
+                }
+                else if (dragTarget.type === 'connPoint' && dragTarget.index !== undefined) {
                     setNoteConnections(prevConns => {
                         const pageConns = prevConns[pageNum] || [];
-                        let changed = false;
                         const newPageConns = pageConns.map(c => {
                              if (c.id !== dragTarget.id) return c;
                              const newX = canvasX - dragOffset.x; const newY = canvasY - dragOffset.y;
-                             const targetIndex = dragTarget.index!;
-                             if(c.controlPoints && c.controlPoints[targetIndex]) {
-                                 if (c.controlPoints[targetIndex].x !== newX || c.controlPoints[targetIndex].y !== newY) {
-                                    changed = true;
-                                    const newPts = [...c.controlPoints];
-                                    newPts[targetIndex] = { x: newX, y: newY };
-                                    c.controlPoints = newPts;
-                                 }
-                             }
-                             return c;
+                             const newPts = [...(c.controlPoints||[])]; newPts[dragTarget.index!] = { x: newX, y: newY };
+                             return { ...c, controlPoints: newPts };
                         });
-                        return changed ? { ...prevConns, [pageNum]: newPageConns } : prevConns;
+                        return { ...prevConns, [pageNum]: newPageConns };
                     });
                 }
             }
@@ -1090,11 +1015,46 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         };
         animationFrameId = requestAnimationFrame(updateLoop);
         return () => cancelAnimationFrame(animationFrameId);
-    }, [dragTarget, viewport, contentDimensions, pageNum]);
+    }, [dragTarget, viewport, contentDimensions, pageNum, selectedNoteIds]);
 
     const handleCanvasMouseUp = (e: React.MouseEvent) => { 
-        if (isPanning) setIsPanning(false); 
+        if (isRightPanning) setIsRightPanning(false);
+        
+        if (selectionBox) {
+            // Box Select Logic
+            if (canvasContainerRef.current) {
+                const rect = canvasContainerRef.current.getBoundingClientRect();
+                
+                // Screen Coords relative to container
+                const x1 = Math.min(selectionBox.start.x, selectionBox.current.x) - rect.left;
+                const y1 = Math.min(selectionBox.start.y, selectionBox.current.y) - rect.top;
+                const x2 = Math.max(selectionBox.start.x, selectionBox.current.x) - rect.left;
+                const y2 = Math.max(selectionBox.start.y, selectionBox.current.y) - rect.top;
+
+                // Convert to Canvas Coords
+                const cx1 = (x1 - viewport.x) / viewport.zoom;
+                const cy1 = (y1 - viewport.y) / viewport.zoom;
+                const cx2 = (x2 - viewport.x) / viewport.zoom;
+                const cy2 = (y2 - viewport.y) / viewport.zoom;
+
+                const notes = stickyNotes[pageNum] || [];
+                const newSelection = new Set(e.ctrlKey ? selectedNoteIds : []); // Keep prev if Ctrl
+
+                notes.forEach(n => {
+                    const w = n.minimized ? 40 : 220; 
+                    const h = n.minimized ? 40 : 150; // Approx
+                    // Check intersection
+                    if (n.x < cx2 && n.x + w > cx1 && n.y < cy2 && n.y + h > cy1) {
+                        newSelection.add(n.id);
+                    }
+                });
+                setSelectedNoteIds(newSelection);
+            }
+            setSelectionBox(null);
+        }
+
         if (linkingState) {
+            // ... existing linking logic
             const el = document.elementFromPoint(e.clientX, e.clientY);
             const noteEl = el?.closest('[id^="sticky-note-"]');
             if (noteEl) {
@@ -1134,8 +1094,12 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
              setAnchorLinkingState(null);
         }
         if (dragTarget) { commitToHistory(annotations, stickyNotes, noteConnections); setDragTarget(null); cachedCanvasRect.current = null; } 
+        
+        // Drawing End
+        handleContentMouseUp();
     };
 
+    // ... (Eraser Logic)
     const handleEraser = (x: number, y: number) => {
         if (eraserMode === 'magic') {
             setAnnotations(prev => {
@@ -1155,17 +1119,18 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     };
 
     const handleContentMouseDown = (e: React.MouseEvent) => {
-        setContextMenu(null);
-        if (e.button !== 2) e.stopPropagation(); 
-        if (tool === 'select' || tool === 'note') {
-             if (tool === 'note') addNoteAt(e.clientX, e.clientY, true); 
-             else { setIsPanning(true); lastMousePos.current = { x: e.clientX, y: e.clientY }; }
-             return;
-        }
-
         if (['pen', 'highlighter', 'eraser'].includes(tool)) {
+             setContextMenu(null);
+             if (e.button !== 0) return; // Only draw with left click
+             e.stopPropagation();
+             e.nativeEvent.stopImmediatePropagation();
+             
              isDrawing.current = true;
-             const rect = e.currentTarget.getBoundingClientRect();
+             
+             const container = contentContainerRef.current;
+             if (!container) return;
+
+             const rect = container.getBoundingClientRect();
              const scaleX = contentDimensions ? contentDimensions.width / rect.width : 1;
              const scaleY = contentDimensions ? contentDimensions.height / rect.height : 1;
              const ptX = (e.clientX - rect.left) * scaleX;
@@ -1212,7 +1177,12 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
 
     const handleContentMouseMove = (e: React.MouseEvent) => {
         if (!isDrawing.current) return;
-        const rect = e.currentTarget.getBoundingClientRect();
+        e.stopPropagation();
+        
+        const container = contentContainerRef.current;
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
         const scaleX = contentDimensions ? contentDimensions.width / rect.width : 1;
         const scaleY = contentDimensions ? contentDimensions.height / rect.height : 1;
         const ptX = (e.clientX - rect.left) * scaleX;
@@ -1317,21 +1287,10 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         setActiveSectionId(newId);
     };
 
-    const handleCanvasMouseDown = (e: React.MouseEvent) => {
-        setContextMenu(null); 
-        if (e.button === 1 || (tool === 'select' && e.button === 0)) {
-            setIsPanning(true);
-            lastMousePos.current = { x: e.clientX, y: e.clientY };
-            if (!dragTarget) setSelectedNoteId(null);
-        }
-        if (tool === 'select' && e.target === captureContainerRef.current) {
-            setSelectedConnectionId(null);
-        }
-    };
-
     const handleContentContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
+        if (hasRightPanMoved.current) return;
         if (tool === 'select') {
             setContextMenu({ x: e.clientX, y: e.clientY, type: 'canvas' });
         }
@@ -1340,12 +1299,29 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const handleNoteContextMenu = (e: React.MouseEvent, id: string) => {
         e.preventDefault();
         e.stopPropagation();
+        if (hasRightPanMoved.current) return;
         setContextMenu({ x: e.clientX, y: e.clientY, type: 'note', id });
     };
 
     const handleNoteMouseDown = (e: React.MouseEvent, note: StickyNote) => {
+        if (e.button === 2) return; // Allow right click to bubble for panning
         e.stopPropagation();
-        handleElementMouseDown(e, { id: note.id, type: 'note' }, { x: note.x, y: note.y });
+        if (tool === 'select') {
+            if (e.ctrlKey) {
+                // Toggle Selection
+                setSelectedNoteIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(note.id)) next.delete(note.id);
+                    else next.add(note.id);
+                    return next;
+                });
+            } else {
+                if (!selectedNoteIds.has(note.id)) {
+                    setSelectedNoteIds(new Set([note.id]));
+                }
+            }
+            handleElementMouseDown(e, { id: note.id, type: 'note' }, { x: note.x, y: note.y });
+        }
     };
 
     const handleNoteTextChange = (id: string, text: string) => {
@@ -1369,7 +1345,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                  }
                  return prev;
             });
-            // We set active section in next tick to ensure state is updated
             setTimeout(() => {
                 setSections(currentSections => {
                      const targetSection = currentSections.find(s => s.title === pageTitle);
@@ -1380,6 +1355,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         }
     };
 
+    // Calculate connections - ensuring they update with drag
     const connectionElements = useMemo(() => {
         const pageConns = noteConnections[pageNum] || [];
         const pageNotes = stickyNotes[pageNum] || [];
@@ -1391,10 +1367,10 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                      const target = pageNotes.find(n => n.id === conn.targetId);
                      if (!source || !target) return null;
                      
-                     const srcW = source.minimized ? 40 : 220;
-                     const srcH = source.minimized ? 40 : 150; 
-                     const tgtW = target.minimized ? 40 : 220;
-                     const tgtH = target.minimized ? 40 : 150;
+                     const srcW = source.minimized ? 40 : (source.contentType === 'image' || source.contentType === 'table' || source.contentType === 'drawing' ? 300 : 220);
+                     const srcH = source.minimized ? 40 : (source.contentType === 'image' || source.contentType === 'drawing' ? 200 : 150); 
+                     const tgtW = target.minimized ? 40 : (target.contentType === 'image' || target.contentType === 'table' || target.contentType === 'drawing' ? 300 : 220);
+                     const tgtH = target.minimized ? 40 : (target.contentType === 'image' || target.contentType === 'drawing' ? 200 : 150);
 
                      const start = { x: source.x + srcW/2, y: source.y + srcH/2 };
                      const end = { x: target.x + tgtW/2, y: target.y + tgtH/2 };
@@ -1416,12 +1392,14 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                              onControlPointDrag={(idx, e, pt) => handleElementMouseDown(e, { id: conn.id, type: 'connPoint', index: idx }, pt)}
                              onControlPointContextMenu={(idx, e) => {
                                  e.preventDefault(); e.stopPropagation();
+                                 if (hasRightPanMoved.current) return;
                                  setContextMenu({ x: e.clientX, y: e.clientY, type: 'controlPoint', id: conn.id, pointIndex: idx });
                              }}
                          />
                      );
                 })}
                 
+                {/* Anchor Connections */}
                 {pageNotes.filter(n => n.anchor).map(note => {
                      if (!contentDimensions || !note.anchor) return null;
                      const contentW = contentDimensions.width;
@@ -1433,8 +1411,8 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                      const anchorY = topLeftY + (note.anchor.y / 100) * contentH;
                      
                      const start = { x: anchorX, y: anchorY };
-                     const noteW = note.minimized ? 40 : 220;
-                     const noteH = note.minimized ? 40 : 150;
+                     const noteW = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'table' || note.contentType === 'drawing' ? 300 : 220);
+                     const noteH = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'drawing' ? 200 : 150);
                      const end = { x: note.x + noteW/2, y: note.y + noteH/2 };
                      
                      const points = [start, ...(note.controlPoints || []), end];
@@ -1457,71 +1435,27 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                              onControlPointDrag={(idx, e, pt) => handleElementMouseDown(e, { id: note.id, type: 'controlPoint', index: idx }, pt)}
                              onControlPointContextMenu={(idx, e) => {
                                  e.preventDefault(); e.stopPropagation();
+                                 if (hasRightPanMoved.current) return;
                                  setContextMenu({ x: e.clientX, y: e.clientY, type: 'controlPoint', id: note.id, pointIndex: idx });
                              }}
                          />
                      );
                 })}
-                
-                {linkingState && (
-                     <path 
-                         d={`M ${(() => {
-                             const source = pageNotes.find(n => n.id === linkingState.sourceId);
-                             const srcW = source ? (source.minimized ? 40 : 220) : 0;
-                             const srcH = source ? (source.minimized ? 40 : 150) : 0;
-                             return source ? `${source.x + srcW/2} ${source.y + srcH/2}` : '0 0';
-                         })()} L ${linkingState.currentPos.x} ${linkingState.currentPos.y}`}
-                         stroke="#ef4444"
-                         strokeWidth="2"
-                         strokeDasharray="5,5"
-                         fill="none"
-                         pointerEvents="none"
-                     />
-                )}
-                 {anchorLinkingState && (
-                     <path 
-                         d={`M ${(() => {
-                             const source = pageNotes.find(n => n.id === anchorLinkingState.noteId);
-                             const srcW = source ? (source.minimized ? 40 : 220) : 0;
-                             const srcH = source ? (source.minimized ? 40 : 150) : 0;
-                             return source ? `${source.x + srcW/2} ${source.y + srcH/2}` : '0 0';
-                         })()} L ${anchorLinkingState.currentPos.x} ${anchorLinkingState.currentPos.y}`}
-                         stroke="#ef4444"
-                         strokeWidth="2"
-                         strokeDasharray="5,5"
-                         fill="none"
-                         pointerEvents="none"
-                     />
-                )}
             </>
         );
     }, [noteConnections, stickyNotes, pageNum, hoveredConnectionId, selectedConnectionId, contentDimensions, linkingState, anchorLinkingState, handleElementMouseDown]);
 
+    const activeSection = sections.find(s => s.id === activeSectionId);
+
     return (
         <div className="flex h-screen bg-[#f0f4f8] overflow-hidden font-sans text-gray-800">
-             <div 
-                 ref={cursorRef} 
-                 className="fixed pointer-events-none rounded-full border border-black/50 z-[100] hidden mix-blend-difference"
-                 style={{ 
-                     width: (tool === 'highlighter' ? strokeWidth : (tool === 'eraser' && eraserMode === 'rubber' ? 30 : strokeWidth)) * viewport.zoom, 
-                     height: (tool === 'highlighter' ? strokeWidth : (tool === 'eraser' && eraserMode === 'rubber' ? 30 : strokeWidth)) * viewport.zoom,
-                     transform: 'translate(-50%, -50%)',
-                     backgroundColor: tool === 'eraser' ? 'rgba(255, 255, 255, 0.5)' : color,
-                     opacity: 0.5
-                 }}
-             />
-
              <div className={`${isSidebarOpen ? 'w-64' : 'w-0'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300 overflow-hidden shrink-0 relative z-40 shadow-xl`}>
                 <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                     <h2 className="font-bold text-gray-700 flex items-center gap-2 text-sm uppercase tracking-wider"><Icon.Notebook size={16} className="text-indigo-500"/> Library</h2>
                     <button onClick={() => setIsSidebarOpen(false)} className="text-gray-400 hover:text-gray-600"><Icon.ChevronLeft size={18} /></button>
                 </div>
-                <div className="flex p-2 gap-1 border-b border-gray-100">
-                    <button onClick={() => setActiveTab('PADS')} className={`flex-1 py-1.5 text-xs font-bold rounded ${activeTab === 'PADS' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'}`}>Notepads</button>
-                    <button onClick={() => setActiveTab('NOTES')} className={`flex-1 py-1.5 text-xs font-bold rounded ${activeTab === 'NOTES' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'}`}>Notes</button>
-                </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    {activeTab === 'PADS' ? (
+                    {activeTab === 'PADS' && (
                         <>
                             <button onClick={createNewNotepad} className="m-3 w-[calc(100%-24px)] py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs shadow-md hover:bg-indigo-700 flex items-center justify-center gap-2 transition-all"><Icon.Plus size={14} /> New Notepad</button>
                             {savedPads.map(pad => (
@@ -1534,23 +1468,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 </div>
                             ))}
                         </>
-                    ) : (
-                        <div className="p-2 space-y-2">
-                             {Object.entries(stickyNotes).map(([page, notes]) => (
-                                <div key={page} className="space-y-1">
-                                    <div className="text-[10px] font-bold text-gray-400 uppercase px-2 mt-2">Page {page}</div>
-                                    {(notes as StickyNote[]).map(note => (
-                                        <div key={note.id} onClick={() => { changePage(parseInt(page)); }} className="p-2 bg-gray-50 rounded border border-gray-100 text-xs cursor-pointer hover:bg-blue-50 hover:border-blue-200 group relative flex items-center justify-between">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: note.color }} />
-                                                <span className="font-bold truncate text-gray-700">{note.text || "Empty Note"}</span>
-                                            </div>
-                                            <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id, parseInt(page)); }} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Icon.Trash size={12} /></button>
-                                        </div>
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
                     )}
                 </div>
             </div>
@@ -1565,7 +1482,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                         <span className="text-xs text-gray-400 font-medium ml-2">{saveStatus === 'saved' ? 'Saved' : 'Saving...'}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => setIsSettingsPanelOpen(true)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500"><Icon.Settings size={20} /></button>
                         <button onClick={handleExport} disabled={isLoading} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg font-bold text-xs px-4 flex items-center gap-2 border border-indigo-200 shadow-sm transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"><Icon.Download size={14}/> Export</button>
                         <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full text-gray-500"><Icon.Close size={20} /></button>
                     </div>
@@ -1600,7 +1516,6 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             ))}
                             <button onClick={handleAddSection} className="px-2 py-1 text-gray-400 hover:text-indigo-600 hover:bg-gray-200 rounded"><Icon.Plus size={16} /></button>
                         </div>
-                        
                         <div className="flex-1 relative">
                             <textarea value={activeSection?.content || ''} onChange={(e) => { const newSecs = sections.map(s => s.id === activeSectionId ? { ...s, content: e.target.value } : s); setSections(newSecs); }} className="w-full h-full resize-none outline-none text-base leading-loose text-slate-800 placeholder-slate-300 custom-scrollbar bg-transparent font-medium p-8" placeholder="Start typing your notes here..." spellCheck={false} />
                         </div>
@@ -1643,96 +1558,88 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                 <button onClick={centerView} className="px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-bold text-xs rounded-lg border border-gray-200 transition-colors" title="Fit content to screen">Reset View</button>
                                 <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 rounded-lg font-bold text-xs flex items-center gap-1 transition-colors"><Icon.FileUp size={14} /> {sourceName ? "Replace" : "Upload PDF/Img"}</button>
                                 <input type="file" ref={fileInputRef} className="hidden" accept=".pdf,image/*" onChange={handleFileUpload} />
+                                <input type="file" ref={imageUploadRef} className="hidden" accept="image/*" onChange={handleFileSelect} />
                             </div>
                         </div>
 
                         <div 
                             ref={canvasContainerRef}
-                            className={`flex-1 relative overflow-hidden ${isPanning ? 'cursor-grabbing' : tool === 'select' ? 'cursor-grab' : tool === 'pen' ? 'cursor-pen' : tool === 'highlighter' ? 'cursor-highlighter' : tool === 'eraser' ? 'cursor-eraser' : 'cursor-crosshair'}`}
+                            className={`flex-1 relative overflow-hidden ${isRightPanning ? 'cursor-grabbing' : tool === 'select' ? 'cursor-default' : tool === 'pen' ? 'cursor-pen' : tool === 'highlighter' ? 'cursor-highlighter' : tool === 'eraser' ? 'cursor-eraser' : 'cursor-crosshair'}`}
                             onMouseDown={handleCanvasMouseDown}
                             onMouseMove={handleCanvasMouseMove}
                             onMouseUp={handleCanvasMouseUp}
                             onContextMenu={handleContentContextMenu}
                         >
-                            {/* FLOATING PAGE CONTROLS */}
-                            {numPages > 1 && (
+                            {/* Selection Box Overlay */}
+                            {selectionBox && canvasContainerRef.current && (
+                                <div 
+                                    className="absolute bg-blue-500/10 border border-blue-500 pointer-events-none z-[60]"
+                                    style={{
+                                        left: Math.min(selectionBox.start.x, selectionBox.current.x) - canvasContainerRef.current.getBoundingClientRect().left,
+                                        top: Math.min(selectionBox.start.y, selectionBox.current.y) - canvasContainerRef.current.getBoundingClientRect().top,
+                                        width: Math.abs(selectionBox.current.x - selectionBox.start.x),
+                                        height: Math.abs(selectionBox.current.y - selectionBox.start.y)
+                                    }}
+                                />
+                            )}
+
+                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 p-1.5 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-clay-xl transition-all hover:shadow-clay-2xl select-none">
+                                <button onClick={undo} disabled={historyIndex <= 0} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 disabled:opacity-30 transition-colors" title="Undo (Ctrl+Z)"><Icon.Undo size={20} /></button>
+                                <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 disabled:opacity-30 transition-colors" title="Redo (Ctrl+Y)"><Icon.Redo size={20} /></button>
+                                <div className="w-px h-6 bg-gray-300 mx-2" />
+                                <button onClick={() => handleZoom(-0.1)} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors"><Icon.Minus size={20} /></button>
+                                <div className="w-32 flex items-center px-2">
+                                    <input type="range" min={MIN_ZOOM} max={MAX_ZOOM} step="0.1" value={viewport.zoom} onChange={(e) => handleZoom(parseFloat(e.target.value) - viewport.zoom)} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                                </div>
+                                <span className="w-10 text-center font-bold text-sm text-gray-700 select-none">{Math.round(viewport.zoom * 100)}%</span>
+                                <button onClick={() => handleZoom(0.1)} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors"><Icon.Plus size={20} /></button>
+                            </div>
+
+                            {/* Page Navigation Overlay */}
+                            {sourceType === 'PDF' && numPages > 1 && (
                                 <>
                                     <button 
-                                        onClick={() => changePage(Math.max(1, pageNum - 1))} 
+                                        onClick={() => changePage(Math.max(1, pageNum - 1))}
                                         disabled={pageNum <= 1}
-                                        className="absolute left-6 top-1/2 -translate-y-1/2 z-50 p-3 bg-white/80 hover:bg-white text-gray-500 hover:text-indigo-600 rounded-full shadow-clay-md border border-white/50 backdrop-blur-md transition-all disabled:opacity-0 disabled:pointer-events-none hover:scale-110 active:scale-95"
+                                        className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/80 backdrop-blur shadow-lg rounded-full hover:bg-white hover:scale-110 transition-all disabled:opacity-0 disabled:pointer-events-none z-40 border border-gray-200 text-gray-600"
                                     >
-                                        <Icon.ChevronLeft size={24} strokeWidth={3} />
+                                        <Icon.ChevronLeft size={24} />
                                     </button>
                                     <button 
-                                        onClick={() => changePage(Math.min(numPages, pageNum + 1))} 
+                                        onClick={() => changePage(Math.min(numPages, pageNum + 1))}
                                         disabled={pageNum >= numPages}
-                                        className="absolute right-6 top-1/2 -translate-y-1/2 z-50 p-3 bg-white/80 hover:bg-white text-gray-500 hover:text-indigo-600 rounded-full shadow-clay-md border border-white/50 backdrop-blur-md transition-all disabled:opacity-0 disabled:pointer-events-none hover:scale-110 active:scale-95"
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/80 backdrop-blur shadow-lg rounded-full hover:bg-white hover:scale-110 transition-all disabled:opacity-0 disabled:pointer-events-none z-40 border border-gray-200 text-gray-600"
                                     >
-                                        <Icon.ChevronRight size={24} strokeWidth={3} />
+                                        <Icon.ChevronRight size={24} />
                                     </button>
                                 </>
                             )}
 
-                            {/* FLOATING BOTTOM TOOLBAR (Zoom & Undo) */}
-                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 p-1.5 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-clay-xl transition-all hover:shadow-clay-2xl select-none">
-                                <button onClick={undo} disabled={historyIndex <= 0} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 disabled:opacity-30 transition-colors" title="Undo (Ctrl+Z)">
-                                    <Icon.Undo size={20} />
-                                </button>
-                                <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 disabled:opacity-30 transition-colors" title="Redo (Ctrl+Y)">
-                                    <Icon.Redo size={20} />
-                                </button>
-                                
-                                <div className="w-px h-6 bg-gray-300 mx-2" />
-                                
-                                <button onClick={() => handleZoom(-0.1)} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
-                                    <Icon.Minus size={20} />
-                                </button>
-                                
-                                <div className="w-32 flex items-center px-2">
-                                    <input 
-                                        type="range" 
-                                        min={MIN_ZOOM} 
-                                        max={MAX_ZOOM} 
-                                        step="0.1" 
-                                        value={viewport.zoom}
-                                        onChange={(e) => {
-                                            const newZoom = parseFloat(e.target.value);
-                                            // Zoom relative to center screen for slider
-                                            const container = canvasContainerRef.current;
-                                            if (container) {
-                                                const w = container.clientWidth;
-                                                const h = container.clientHeight;
-                                                const centerX = w / 2;
-                                                const centerY = h / 2;
-                                                handleZoom(newZoom - viewport.zoom, { x: centerX + container.getBoundingClientRect().left, y: centerY + container.getBoundingClientRect().top });
-                                            } else {
-                                                handleZoom(newZoom - viewport.zoom);
-                                            }
-                                        }}
-                                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" 
-                                    />
-                                </div>
-
-                                <span className="w-10 text-center font-bold text-sm text-gray-700 select-none">
-                                    {Math.round(viewport.zoom * 100)}%
-                                </span>
-                                <button onClick={() => handleZoom(0.1)} className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
-                                    <Icon.Plus size={20} />
-                                </button>
-                            </div>
-
                             <div ref={captureContainerRef} style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`, transformOrigin: 'top left', width: CANVAS_SIZE, height: CANVAS_SIZE, position: 'absolute', top: 0, left: 0 }} className="bg-transparent">
-                                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-2xl bg-white" style={{ boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', padding: '0', width: contentDimensions ? contentDimensions.width : 'auto', height: contentDimensions ? contentDimensions.height : 'auto' }} onMouseDown={handleContentMouseDown} onMouseMove={handleContentMouseMove} onMouseUp={handleContentMouseUp}>
+                                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-2xl bg-white" style={{ boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', padding: '0', width: contentDimensions ? contentDimensions.width : 'auto', height: contentDimensions ? contentDimensions.height : 'auto' }}>
                                     {pdfError ? (
                                         <div className="w-[600px] h-[800px] bg-red-50 flex flex-col items-center justify-center text-red-600 border-2 border-dashed border-red-300 rounded-xl p-6 text-center"><Icon.AlertTriangle size={48} className="mb-4" /><p className="font-bold mb-2">PDF Load Error</p><p className="text-sm">{pdfError}</p></div>
                                     ) : sourceType === 'PDF' ? (
-                                        <div className="relative" style={{ width: '100%', height: '100%' }}>
+                                        <div 
+                                            ref={contentContainerRef}
+                                            className="relative" 
+                                            style={{ width: '100%', height: '100%' }}
+                                            onMouseDown={handleContentMouseDown}
+                                            onMouseMove={handleContentMouseMove}
+                                            onMouseUp={handleContentMouseUp}
+                                        >
                                             <canvas ref={pdfCanvasRef} className="block" style={{ width: '100%', height: '100%' }} />
                                             <canvas ref={annotationCanvasRef} className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />
                                         </div>
                                     ) : sourceType === 'IMAGE' ? (
-                                        <div className="relative" style={{ width: '100%', height: '100%' }}>
+                                        <div 
+                                            ref={contentContainerRef}
+                                            className="relative" 
+                                            style={{ width: '100%', height: '100%' }}
+                                            onMouseDown={handleContentMouseDown}
+                                            onMouseMove={handleContentMouseMove}
+                                            onMouseUp={handleContentMouseUp}
+                                        >
                                             <img src={sourceData as string} alt="Uploaded" className="block" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                                             <canvas ref={annotationCanvasRef} className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />
                                         </div>
@@ -1741,31 +1648,118 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                     )}
                                 </div>
                                 <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 20 }}>{connectionElements}</svg>
+                                
                                 {(stickyNotes[pageNum] as StickyNote[] || []).map(note => (
-                                    <div key={note.id} id={`sticky-note-${note.id}`} className={`absolute flex flex-col shadow-lg rounded-lg overflow-visible border border-black/10 transition-[box-shadow,transform] duration-200 hover:shadow-2xl hover:scale-[1.01] group/note ${selectedNoteId === note.id ? 'ring-2 ring-indigo-500 shadow-2xl z-50' : 'z-30'}`} style={{ left: note.x, top: note.y, width: note.minimized ? '40px' : '220px', height: note.minimized ? '40px' : 'auto', backgroundColor: note.color, transitionProperty: 'box-shadow, transform, background-color', transitionDuration: '200ms' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setSelectedNoteId(note.id); }} onContextMenu={(e) => handleNoteContextMenu(e, note.id)}>
+                                    <div key={note.id} id={`sticky-note-${note.id}`} className={`absolute flex flex-col shadow-lg rounded-lg overflow-visible border border-black/10 transition-[box-shadow,transform] duration-200 hover:shadow-2xl group/note ${selectedNoteIds.has(note.id) ? 'ring-2 ring-indigo-500 shadow-2xl z-50' : 'z-30'}`} style={{ left: note.x, top: note.y, width: note.minimized ? '40px' : (note.contentType === 'image' || note.contentType === 'table' || note.contentType === 'drawing' ? '300px' : '220px'), height: note.minimized ? '40px' : (note.contentType === 'image' || note.contentType === 'table' || note.contentType === 'drawing' ? 'auto' : 'auto'), backgroundColor: note.color, minWidth: note.minimized ? 0 : 200 }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setSelectedNoteIds(new Set([note.id])); }} onContextMenu={(e) => handleNoteContextMenu(e, note.id)}>
                                         <div className="h-7 w-full bg-black/5 flex items-center justify-between px-1 cursor-move border-b border-black/5" onMouseDown={(e) => handleNoteMouseDown(e, note)} title="Drag to move">
                                             <div className="flex gap-1 pl-1 items-center">
                                                 {note.minimized && <div className="w-2 h-2 rounded-full bg-gray-400" />}
                                                 {!note.minimized && <div className="flex gap-1 items-center" onMouseDown={e => e.stopPropagation()}>{NOTE_COLORS.slice(0, 3).map(c => <button key={c} onClick={(e) => { e.stopPropagation(); updateStickyNote(note.id, { color: c }); }} className="w-3 h-3 rounded-full border border-black/10 hover:scale-125 transition-transform" style={{ backgroundColor: c }} />)}</div>}
                                             </div>
                                             <div className="flex gap-1 items-center" onMouseDown={e => e.stopPropagation()}>
-                                                {note.minimized ? 
-                                                    <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); updateStickyNote(note.id, { minimized: false }); }} className="p-0.5 hover:bg-blue-100 hover:text-blue-600 rounded text-gray-500" title="Expand"><Icon.Plus size={10} /></button> : 
-                                                    <>
-                                                        <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); updateStickyNote(note.id, { minimized: true }); }} className="p-0.5 hover:bg-black/10 rounded text-gray-500 hover:text-gray-800" title="Minimize"><Icon.Minus size={10} /></button>
-                                                    </>
-                                                }
-                                                <button
-                                                    onMouseDown={(e) => e.stopPropagation()}
-                                                    onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }}
-                                                    className="p-0.5 hover:bg-red-100 hover:text-red-600 rounded text-gray-400 transition-colors ml-1"
-                                                    title="Close Note"
-                                                >
-                                                    <Icon.Close size={12} />
-                                                </button>
+                                                {note.minimized ? <button onClick={() => updateStickyNote(note.id, { minimized: false })} className="p-0.5 hover:bg-blue-100 hover:text-blue-600 rounded"><Icon.Plus size={10} /></button> : <button onClick={() => updateStickyNote(note.id, { minimized: true })} className="p-0.5 hover:bg-black/10 rounded"><Icon.Minus size={10} /></button>}
+                                                <button onClick={() => deleteNote(note.id)} className="p-0.5 hover:bg-red-100 hover:text-red-600 rounded"><Icon.Close size={12} /></button>
                                             </div>
                                         </div>
-                                        {!note.minimized && <><div className={`absolute -right-8 top-0 flex flex-col gap-1 transition-opacity pointer-events-auto ${selectedNoteId === note.id ? 'opacity-100' : 'opacity-0 group-hover/note:opacity-100'}`}><button className="w-6 h-6 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50" title="Add Child Note" onClick={(e) => { e.stopPropagation(); addChildNote(note.id); }}><Icon.Plus size={14} /></button><button className="w-6 h-6 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center text-gray-500 hover:text-green-600 hover:bg-green-50 cursor-crosshair" title="Drag to Link" onMouseDown={(e) => startLinking(e, note.id)}><Icon.Connect size={14} /></button></div><textarea className="w-full h-auto min-h-[120px] p-3 bg-transparent text-sm resize-none outline-none font-medium text-gray-800 custom-scrollbar leading-relaxed" value={note.text} onChange={(e) => { handleNoteTextChange(note.id, e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} placeholder="Type note..." onMouseDown={(e) => e.stopPropagation()} spellCheck={false} /></>}
+                                        
+                                        {!note.minimized && (
+                                            <>
+                                                <div className={`absolute -right-8 top-0 flex flex-col gap-1 transition-opacity pointer-events-auto ${selectedNoteIds.has(note.id) ? 'opacity-100' : 'opacity-0 group-hover/note:opacity-100'}`}>
+                                                    <button className="w-6 h-6 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50" title="Add Child Note" onClick={(e) => { e.stopPropagation(); addChildNote(note.id); }}><Icon.Plus size={14} /></button>
+                                                    <button className="w-6 h-6 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center text-gray-500 hover:text-green-600 hover:bg-green-50 cursor-crosshair" title="Drag to Link" onMouseDown={(e) => startLinking(e, note.id)}><Icon.Connect size={14} /></button>
+                                                </div>
+
+                                                <div className="w-full h-auto min-h-[100px] relative bg-transparent">
+                                                    {/* IMAGE */}
+                                                    {note.contentType === 'image' && (
+                                                        note.isPlaceholder ? (
+                                                            <div className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-gray-300 rounded-lg m-2 cursor-pointer hover:bg-black/5" onClick={() => handleImageUpload(note.id)}>
+                                                                <Icon.Image size={24} className="text-gray-400"/>
+                                                                <span className="text-[10px] text-gray-500 mt-1 font-bold">Upload Image</span>
+                                                            </div>
+                                                        ) : (
+                                                            <img src={note.mediaUrl} className="w-full h-auto max-w-[300px] object-contain rounded-b-lg pointer-events-none" alt="Note Media" />
+                                                        )
+                                                    )}
+                                                    
+                                                    {/* AUDIO */}
+                                                    {note.contentType === 'audio' && (
+                                                        <div className="flex flex-col items-center justify-center p-4">
+                                                            {note.mediaUrl ? (
+                                                                <div className="w-full flex flex-col gap-2">
+                                                                    <audio src={note.mediaUrl} controls className="w-full h-8" />
+                                                                    <div className="flex justify-between items-center px-1">
+                                                                        <span className="text-[10px] font-bold text-gray-500 uppercase">Voice Note</span>
+                                                                        <button onClick={() => updateStickyNote(note.id, { mediaUrl: undefined })} className="text-[10px] text-red-500 hover:underline">Clear</button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex flex-col items-center">
+                                                                    {recordingNoteId === note.id ? (
+                                                                        <button onClick={stopRecording} className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center animate-pulse shadow-lg mb-2">
+                                                                            <div className="w-4 h-4 bg-white rounded-sm" />
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button onClick={() => startRecording(note.id)} className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors mb-2">
+                                                                            <Icon.Mic size={24} />
+                                                                        </button>
+                                                                    )}
+                                                                    <span className="text-xs font-bold text-gray-600">{recordingNoteId === note.id ? "Recording..." : "Tap to Record"}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {/* TABLE */}
+                                                    {note.contentType === 'table' && (
+                                                        <div className="p-2 overflow-x-auto">
+                                                            <div className="inline-block min-w-full border border-gray-300 rounded overflow-hidden">
+                                                                {note.tableData?.map((row, rIdx) => (
+                                                                    <div key={rIdx} className="flex border-b last:border-b-0 border-gray-200">
+                                                                        {row.map((cell, cIdx) => (
+                                                                            <input 
+                                                                                key={cIdx} 
+                                                                                value={cell} 
+                                                                                onChange={(e) => updateTableCell(note.id, rIdx, cIdx, e.target.value)}
+                                                                                className={`w-24 p-1 text-xs border-r border-gray-200 last:border-r-0 outline-none focus:bg-blue-50 ${rIdx === 0 ? 'bg-gray-100 font-bold text-center' : 'bg-white'}`}
+                                                                                placeholder="..."
+                                                                            />
+                                                                        ))}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <div className="flex gap-2 mt-2">
+                                                                <button onClick={() => addTableRow(note.id)} className="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 font-bold">+ Row</button>
+                                                                <button onClick={() => addTableCol(note.id)} className="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 font-bold">+ Col</button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* DRAWING */}
+                                                    {note.contentType === 'drawing' && (
+                                                        <div className="w-full h-48 p-1">
+                                                            <DrawingArea 
+                                                                initialImage={note.mediaUrl}
+                                                                strokeColor={color}
+                                                                onSave={(data) => updateStickyNote(note.id, { mediaUrl: data })}
+                                                            />
+                                                        </div>
+                                                    )}
+
+                                                    {/* TEXT */}
+                                                    {(note.contentType === 'text' || !note.contentType) && (
+                                                        <textarea 
+                                                            className="w-full h-full min-h-[120px] p-3 bg-transparent text-sm resize-none outline-none font-medium text-gray-800 custom-scrollbar leading-relaxed" 
+                                                            value={note.text} 
+                                                            onChange={(e) => { handleNoteTextChange(note.id, e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} 
+                                                            placeholder="Type note..." 
+                                                            onMouseDown={(e) => e.stopPropagation()} 
+                                                            spellCheck={false} 
+                                                        />
+                                                    )}
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -1775,64 +1769,33 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 </div>
             </div>
 
-            {/* Settings Sidebar */}
-            <div className={`fixed top-0 right-0 h-full w-80 bg-white shadow-2xl z-[200] transform transition-transform duration-300 ease-in-out ${isSettingsPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-                <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-                    <h2 className="font-bold text-gray-800 flex items-center gap-2"><Icon.Settings size={20} className="text-gray-500"/> Preferences</h2>
-                    <button onClick={() => setIsSettingsPanelOpen(false)} className="p-1 hover:bg-gray-200 rounded text-gray-500"><Icon.Close size={20}/></button>
-                </div>
-                <div className="p-4 space-y-6">
-                    <div>
-                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Automation</h3>
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Auto-create Tabs</span>
-                            <div className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${autoCreateTabs ? 'bg-green-500' : 'bg-gray-300'}`} onClick={() => setAutoCreateTabs(!autoCreateTabs)}>
-                                <div className={`w-3 h-3 bg-white rounded-full absolute top-1 shadow-sm transition-all ${autoCreateTabs ? 'left-6' : 'left-1'}`}/>
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-gray-500">Automatically creates a new note tab for the page when you switch PDF pages.</p>
-                    </div>
-
-                    <div>
-                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Display</h3>
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Visual Grid</span>
-                            <div className="w-10 h-5 rounded-full relative cursor-pointer bg-green-500">
-                                <div className="w-3 h-3 bg-white rounded-full absolute top-1 left-6 shadow-sm"/>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div>
-                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Danger Zone</h3>
-                        <button 
-                            onClick={() => {
-                                if(window.confirm("Clear ALL annotations and notes on this page? This cannot be undone easily.")) {
-                                    setAnnotations(prev => ({...prev, [pageNum]: []}));
-                                    setStickyNotes(prev => ({...prev, [pageNum]: []}));
-                                    setNoteConnections(prev => ({...prev, [pageNum]: []}));
-                                }
-                            }}
-                            className="w-full py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
-                        >
-                            <Icon.Trash size={16}/> Clear Page
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
             {contextMenu && (
-                <div className="fixed z-[100] bg-white border border-gray-200 shadow-xl rounded-lg p-1 text-sm flex flex-col min-w-[200px] animate-pop origin-top-left" style={{ top: contextMenu.y, left: contextMenu.x }} onMouseDown={(e) => e.stopPropagation()}>
-                    {contextMenu.type === 'canvas' ? <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('create_note')}><Icon.StickyNote size={14} /> Create Sticky Note</button> :
+                <div className="fixed z-[100] bg-white border border-gray-200 shadow-2xl rounded-lg p-1 text-sm flex flex-col min-w-[220px] animate-pop origin-top-left overflow-hidden" style={{ top: contextMenu.y, left: contextMenu.x }} onMouseDown={(e) => e.stopPropagation()}>
+                    {contextMenu.type === 'canvas' ? (
+                        <>
+                            <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Text & Markup</div>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('create_note')}><Icon.StickyNote size={14} className="text-gray-400"/> Add Sticky Note</button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('snip_text')}><Icon.Cut size={14} className="text-gray-400"/> Snip Selected Text</button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('add_drawing')}><Icon.Pen size={14} className="text-gray-400"/> Insert Drawing Area</button>
+                            
+                            <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 border-t text-[10px] font-bold text-gray-400 uppercase tracking-widest">Multimedia</div>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('upload_image')}><Icon.Image size={14} className="text-blue-400"/> Upload Image Note</button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('create_image_placeholder')}><Icon.ShapeRect size={14} className="text-gray-400"/> Create Image Placeholder</button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('add_audio')}><Icon.Mic size={14} className="text-red-400"/> Add Audio Note</button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('add_table')}><Icon.Table size={14} className="text-green-400"/> Add Table Note</button>
+
+                            <div className="h-px bg-gray-100 my-1"/>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('paste')}><Icon.Paste size={14} className="text-gray-400"/> Paste</button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium flex items-center gap-3" onClick={() => handleContextMenuAction('reset_view')}><Icon.Maximize size={14} className="text-gray-400"/> Reset View</button>
+                        </>
+                    ) :
                     contextMenu.type === 'note' && contextMenu.id ? (
                         <>
                             <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('add_child')}><Icon.Plus size={14} /> Add Child Note</button>
                             <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('add_anchor')}><Icon.Map size={14} /> Add Anchor Point</button>
                             <div className="p-2 border-b border-t border-gray-100"><div className="text-[10px] font-bold text-gray-400 uppercase mb-2 pl-1">Note Color</div><div className="flex flex-wrap gap-1.5">{NOTE_COLORS.map(c => <button key={c} onClick={() => handleContextMenuAction('color', c)} className="w-5 h-5 rounded-full border border-black/10 hover:scale-125 transition-transform shadow-sm" style={{backgroundColor: c}}/>)}</div></div>
                             <div className="h-px bg-gray-100 my-1"/>
-                            <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('delete')}>
-                                <Icon.Trash size={14} /> Delete Note
-                            </button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('delete')}><Icon.Trash size={14} /> Delete Note</button>
                         </>
                     ) :
                     contextMenu.type === 'controlPoint' && contextMenu.id ? <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('delete_point')}><Icon.Trash size={14} /> Delete Control Point</button> :
@@ -1842,9 +1805,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             <div className="p-2 border-b border-gray-100"><div className="text-[10px] font-bold text-gray-400 uppercase mb-2 pl-1">Link Style</div><div className="flex gap-1"><button onClick={() => handleContextMenuAction('connection_style', 'straight')} className="flex-1 py-1 bg-gray-50 hover:bg-gray-100 rounded border border-gray-100 text-[10px] font-bold text-gray-600">STR</button><button onClick={() => handleContextMenuAction('connection_style', 'curved')} className="flex-1 py-1 bg-gray-50 hover:bg-gray-100 rounded border border-gray-100 text-[10px] font-bold text-gray-600">CRV</button><button onClick={() => handleContextMenuAction('connection_style', 'orthogonal')} className="flex-1 py-1 bg-gray-50 hover:bg-gray-100 rounded border border-gray-100 text-[10px] font-bold text-gray-600">90°</button></div></div>
                             {(contextMenu.connectionType === 'noteConnection' || contextMenu.connectionType === 'anchorConnection') && <button className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-gray-700 font-medium rounded flex items-center gap-2 mt-1" onClick={() => handleContextMenuAction('add_point')}><Icon.Plus size={14} /> Add Control Point</button>}
                             <div className="h-px bg-gray-100 my-1"/>
-                            <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('delete_link')}>
-                                <Icon.Trash size={14} /> Delete Link
-                            </button>
+                            <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 font-medium rounded flex items-center gap-2" onClick={() => handleContextMenuAction('delete_link')}><Icon.Trash size={14} /> Delete Link</button>
                         </>
                     )}
                 </div>
