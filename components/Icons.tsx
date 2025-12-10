@@ -192,5 +192,7 @@ export const Icon = {
   FileUp,
   Wifi,
   Database,
-  Star
+  Star,
+  Square,
+  Circle
 };

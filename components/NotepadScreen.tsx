@@ -1901,7 +1901,18 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                         <div className="h-7 w-full bg-black/5 flex items-center justify-between px-1 cursor-move border-b border-black/5" onMouseDown={(e) => handleNoteMouseDown(e, note)} title="Drag to move">
                                             <div className="flex gap-1 pl-1 items-center">
                                                 {note.minimized && <div className="w-2 h-2 rounded-full bg-gray-400" />}
-                                                {!note.minimized && <div className="flex gap-1 items-center" onMouseDown={e => e.stopPropagation()}>{NOTE_COLORS.slice(0, 3).map(c => <button key={c} onClick={(e) => { e.stopPropagation(); updateStickyNote(note.id, { color: c }); }} className="w-3 h-3 rounded-full border border-black/10 hover:scale-125 transition-transform" style={{ backgroundColor: c }} />)}</div>}
+                                                {!note.minimized && <div className="flex gap-1 items-center" onMouseDown={e => e.stopPropagation()}>
+                                                    {NOTE_COLORS.slice(0, 3).map(c => <button key={c} onClick={(e) => { e.stopPropagation(); updateStickyNote(note.id, { color: c }); }} className="w-3 h-3 rounded-full border border-black/10 hover:scale-125 transition-transform" style={{ backgroundColor: c }} />)}
+                                                    <label className="w-3 h-3 rounded-full border border-black/10 hover:scale-125 transition-transform cursor-pointer relative overflow-hidden" title="Custom Color">
+                                                        <input 
+                                                            type="color" 
+                                                            className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                                                            value={note.color} 
+                                                            onChange={(e) => updateStickyNote(note.id, { color: e.target.value })}
+                                                        />
+                                                        <div className="w-full h-full bg-[conic-gradient(at_center,_red,_yellow,_green,_blue,_purple,_red)]" />
+                                                    </label>
+                                                </div>}
                                             </div>
                                             <div className="flex gap-1 items-center" onMouseDown={e => e.stopPropagation()}>
                                                 {note.minimized ? <button onClick={() => updateStickyNote(note.id, { minimized: false })} className="p-0.5 hover:bg-blue-100 hover:text-blue-600 rounded"><Icon.Plus size={10} /></button> : <button onClick={() => updateStickyNote(note.id, { minimized: true })} className="p-0.5 hover:bg-black/10 rounded"><Icon.Minus size={10} /></button>}
