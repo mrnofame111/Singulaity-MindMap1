@@ -13,8 +13,10 @@ interface NotepadScreenProps {
     onBack: () => void;
 }
 
+type AnnotationType = 'pen' | 'highlighter' | 'laser' | 'line' | 'rectangle' | 'circle' | 'star' | 'emphasis' | 'box_highlight';
+
 interface AnnotationPath {
-    type: 'pen' | 'highlighter';
+    type: AnnotationType;
     points: { x: number; y: number }[];
     color: string;
     width: number;
@@ -101,7 +103,30 @@ const MAX_ZOOM = 5.0;
 const INITIAL_ZOOM = 0.8;
 const MAX_HISTORY = 50;
 
-// Helper: Smooth curve rendering (Quadratic Bezier)
+// Helper: Shape Drawing Logic
+const drawStar = (ctx: CanvasRenderingContext2D, cx: number, cy: number, spikes: number, outerRadius: number, innerRadius: number) => {
+    let rot = Math.PI / 2 * 3;
+    let x = cx;
+    let y = cy;
+    const step = Math.PI / spikes;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+        x = cx + Math.cos(rot) * outerRadius;
+        y = cy + Math.sin(rot) * outerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+
+        x = cx + Math.cos(rot) * innerRadius;
+        y = cy + Math.sin(rot) * innerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+    }
+    ctx.lineTo(cx, cy - outerRadius);
+    ctx.closePath();
+};
+
 const drawSmoothPath = (ctx: CanvasRenderingContext2D, points: {x:number, y:number}[], scale: number) => {
     if (points.length < 2) return;
 
@@ -382,7 +407,9 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const [selectionBox, setSelectionBox] = useState<{ start: {x: number, y: number}, current: {x: number, y: number} } | null>(null);
     
     // Tools
-    const [tool, setTool] = useState<'pen' | 'highlighter' | 'eraser' | 'select' | 'note'>('select');
+    const [tool, setTool] = useState<'pen' | 'highlighter' | 'eraser' | 'select' | 'note' | 'laser'>('select');
+    const [activeShape, setActiveShape] = useState<'freehand' | 'line' | 'rectangle' | 'circle' | 'star' | 'emphasis' | 'box_highlight'>('freehand');
+    
     const [color, setColor] = useState('#1e293b');
     const [strokeWidth, setStrokeWidth] = useState(2);
     const [strokeOpacity, setStrokeOpacity] = useState(1);
@@ -394,6 +421,9 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const [stickyNotes, setStickyNotes] = useState<Record<number, StickyNote[]>>({});
     const [noteConnections, setNoteConnections] = useState<Record<number, NoteConnection[]>>({});
     const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
+    
+    // Laser Trail State
+    const [laserPath, setLaserPath] = useState<{x: number, y: number, time: number}[]>([]);
     
     // History
     const [history, setHistory] = useState<Array<{
@@ -434,10 +464,12 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const imageUploadRef = useRef<HTMLInputElement>(null);
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
     const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
+    const laserCanvasRef = useRef<HTMLCanvasElement>(null); // New Canvas for Laser
     const isDrawing = useRef(false);
     const currentPath = useRef<AnnotationPath | null>(null);
     const renderTaskRef = useRef<any>(null);
     const lastDrawPoint = useRef<{ x: number, y: number } | null>(null);
+    const drawStartPoint = useRef<{ x: number, y: number } | null>(null); // For Shapes
     const isShiftPressed = useRef(false);
     const [renderScale, setRenderScale] = useState(1.5);
     const tabsListRef = useRef<HTMLDivElement>(null);
@@ -457,8 +489,9 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
 
     // Tool Config Changes
     useEffect(() => {
-        if (tool === 'highlighter') { setStrokeWidth(20); setStrokeOpacity(0.5); setColor('#f59e0b'); } 
-        else if (tool === 'pen') { setStrokeWidth(2); setStrokeOpacity(1); setColor('#1e293b'); }
+        if (tool === 'highlighter') { setStrokeWidth(20); setStrokeOpacity(0.5); setColor('#f59e0b'); setActiveShape('freehand'); } 
+        else if (tool === 'pen') { setStrokeWidth(2); setStrokeOpacity(1); setColor('#1e293b'); setActiveShape('freehand'); }
+        else if (tool === 'laser') { setStrokeWidth(4); setStrokeOpacity(0.8); setColor('#ef4444'); }
     }, [tool]);
 
     // Canvas Resize Observer
@@ -470,6 +503,60 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
         ro.observe(canvasContainerRef.current);
         return () => ro.disconnect();
     }, []);
+
+    // Laser Animation Loop
+    useEffect(() => {
+        let animId: number;
+        const renderLaser = () => {
+            if (laserPath.length === 0) return;
+            const canvas = laserCanvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const now = Date.now();
+            const survivingPath = laserPath.filter(p => now - p.time < 1000); // 1 sec trail
+            
+            if (survivingPath.length > 1) {
+                ctx.beginPath();
+                ctx.strokeStyle = '#ef4444';
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                // Draw with fading opacity based on time
+                for (let i = 1; i < survivingPath.length; i++) {
+                    const p1 = survivingPath[i-1];
+                    const p2 = survivingPath[i];
+                    const age = now - p2.time;
+                    const opacity = Math.max(0, 1 - age / 1000);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x * renderScale, p1.y * renderScale);
+                    ctx.lineTo(p2.x * renderScale, p2.y * renderScale);
+                    ctx.globalAlpha = opacity;
+                    ctx.lineWidth = (4 * renderScale) * (1 - age/1500); // Tapering width
+                    ctx.stroke();
+                }
+            }
+            
+            if (survivingPath.length !== laserPath.length) {
+                setLaserPath(survivingPath);
+            }
+            
+            if (survivingPath.length > 0) {
+                animId = requestAnimationFrame(renderLaser);
+            } else {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        };
+        
+        if (laserPath.length > 0) {
+            animId = requestAnimationFrame(renderLaser);
+        }
+        
+        return () => cancelAnimationFrame(animId);
+    }, [laserPath, renderScale]);
 
     // Redraw annotations
     useEffect(() => {
@@ -490,22 +577,61 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 ctx.globalCompositeOperation = 'destination-out';
                 ctx.lineWidth = path.width * renderScale;
                 ctx.globalAlpha = 1.0;
-            } else if (path.type === 'highlighter') {
+            } else if (path.type === 'highlighter' || path.type === 'box_highlight') {
                 ctx.globalCompositeOperation = 'multiply';
                 ctx.lineWidth = path.width * renderScale;
                 ctx.globalAlpha = path.opacity !== undefined ? path.opacity : 0.4;
                 ctx.strokeStyle = path.color;
+                ctx.fillStyle = path.color;
             } else {
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.lineWidth = path.width * renderScale;
                 ctx.globalAlpha = path.opacity !== undefined ? path.opacity : 1.0;
                 ctx.strokeStyle = path.color;
+                ctx.fillStyle = path.color;
             }
 
             ctx.lineCap = 'round'; 
             ctx.lineJoin = 'round';
-            drawSmoothPath(ctx, path.points, renderScale);
-            ctx.stroke();
+
+            const startP = path.points[0];
+            const endP = path.points[path.points.length - 1];
+
+            if (path.type === 'line') {
+                ctx.beginPath();
+                ctx.moveTo(startP.x * renderScale, startP.y * renderScale);
+                ctx.lineTo(endP.x * renderScale, endP.y * renderScale);
+                ctx.stroke();
+            } else if (path.type === 'rectangle') {
+                ctx.strokeRect(startP.x * renderScale, startP.y * renderScale, (endP.x - startP.x) * renderScale, (endP.y - startP.y) * renderScale);
+            } else if (path.type === 'box_highlight') {
+                ctx.fillRect(startP.x * renderScale, startP.y * renderScale, (endP.x - startP.x) * renderScale, (endP.y - startP.y) * renderScale);
+            } else if (path.type === 'circle') {
+                const radius = Math.sqrt(Math.pow(endP.x - startP.x, 2) + Math.pow(endP.y - startP.y, 2));
+                ctx.beginPath();
+                ctx.arc(startP.x * renderScale, startP.y * renderScale, radius * renderScale, 0, 2 * Math.PI);
+                ctx.stroke();
+            } else if (path.type === 'star') {
+                const radius = Math.sqrt(Math.pow(endP.x - startP.x, 2) + Math.pow(endP.y - startP.y, 2));
+                drawStar(ctx, startP.x * renderScale, startP.y * renderScale, 5, radius * renderScale, (radius / 2) * renderScale);
+                ctx.stroke();
+            } else if (path.type === 'emphasis') {
+                // Double curve
+                ctx.beginPath();
+                const midX = (startP.x + endP.x) / 2;
+                const midY = Math.max(startP.y, endP.y) + 10; // Dip down
+                ctx.moveTo(startP.x * renderScale, startP.y * renderScale);
+                ctx.quadraticCurveTo(midX * renderScale, midY * renderScale, endP.x * renderScale, endP.y * renderScale);
+                // Second line offset
+                ctx.moveTo((startP.x + 2) * renderScale, (startP.y + 4) * renderScale);
+                ctx.quadraticCurveTo(midX * renderScale, (midY + 4) * renderScale, (endP.x - 2) * renderScale, (endP.y + 4) * renderScale);
+                ctx.stroke();
+            } else {
+                // Freehand / Default
+                drawSmoothPath(ctx, path.points, renderScale);
+                ctx.stroke();
+            }
+            
             ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over';
         });
     }, [annotations, pageNum, renderScale]);
@@ -885,6 +1011,14 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
     const handleCanvasMouseMove = (e: React.MouseEvent) => {
         mousePosRef.current = { x: e.clientX, y: e.clientY };
         
+        // Laser Logic - Track path if laser tool
+        if (tool === 'laser' && e.buttons === 1 && canvasContainerRef.current) {
+            const rect = canvasContainerRef.current.getBoundingClientRect();
+            const canvasX = ((e.clientX - rect.left) - viewport.x) / viewport.zoom;
+            const canvasY = ((e.clientY - rect.top) - viewport.y) / viewport.zoom;
+            setLaserPath(prev => [...prev, { x: canvasX, y: canvasY, time: Date.now() }]);
+        }
+
         // Cursor Follower
         if (cursorRef.current && canvasContainerRef.current) {
             const rect = canvasContainerRef.current.getBoundingClientRect();
@@ -1140,8 +1274,15 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                  handleEraser(ptX, ptY);
              } else {
                  const isEraser = tool === 'eraser';
+                 let newType: AnnotationType = isEraser ? 'pen' : (tool as AnnotationType);
+                 if (!isEraser && activeShape !== 'freehand') {
+                     // If shape mode is active, set the type
+                     if (tool === 'highlighter' && activeShape === 'rectangle') newType = 'box_highlight';
+                     else newType = activeShape as AnnotationType;
+                 }
+
                  currentPath.current = {
-                     type: isEraser ? 'pen' : (tool as 'pen' | 'highlighter'),
+                     type: newType,
                      points: [{ x: ptX, y: ptY }],
                      color: isEraser ? '#ffffff' : color, 
                      width: isEraser ? 30 : strokeWidth,
@@ -1149,27 +1290,31 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                      isEraser: isEraser
                  };
                  lastDrawPoint.current = { x: ptX, y: ptY };
+                 drawStartPoint.current = { x: ptX, y: ptY }; // Track start for shapes
 
-                 const ctx = annotationCanvasRef.current?.getContext('2d');
-                 if (ctx) {
-                    ctx.beginPath();
-                    ctx.arc(ptX * renderScale, ptY * renderScale, (currentPath.current.width * renderScale) / 2, 0, Math.PI * 2);
-                    
-                    if (isEraser) {
-                        ctx.globalCompositeOperation = 'destination-out';
-                        ctx.fillStyle = 'rgba(0,0,0,1)'; 
-                    } else if(tool === 'highlighter') {
-                        ctx.globalCompositeOperation = 'multiply';
-                        ctx.globalAlpha = strokeOpacity;
-                        ctx.fillStyle = color;
-                    } else {
-                        ctx.globalCompositeOperation = 'source-over';
-                        ctx.globalAlpha = 1.0;
-                        ctx.fillStyle = color;
-                    }
-                    
-                    ctx.fill();
-                    ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over';
+                 // For freehand, we can draw immediately. For shapes, we wait for move to show preview.
+                 if (newType === 'pen' || newType === 'highlighter') {
+                     const ctx = annotationCanvasRef.current?.getContext('2d');
+                     if (ctx) {
+                        ctx.beginPath();
+                        ctx.arc(ptX * renderScale, ptY * renderScale, (currentPath.current.width * renderScale) / 2, 0, Math.PI * 2);
+                        
+                        if (isEraser) {
+                            ctx.globalCompositeOperation = 'destination-out';
+                            ctx.fillStyle = 'rgba(0,0,0,1)'; 
+                        } else if(tool === 'highlighter') {
+                            ctx.globalCompositeOperation = 'multiply';
+                            ctx.globalAlpha = strokeOpacity;
+                            ctx.fillStyle = color;
+                        } else {
+                            ctx.globalCompositeOperation = 'source-over';
+                            ctx.globalAlpha = 1.0;
+                            ctx.fillStyle = color;
+                        }
+                        
+                        ctx.fill();
+                        ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over';
+                     }
                  }
              }
         }
@@ -1196,35 +1341,92 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                 const start = currentPath.current.points[0];
                 Math.abs(ptX - start.x) > Math.abs(ptY - start.y) ? finalY = start.y : finalX = start.x;
             }
-            currentPath.current.points.push({ x: finalX, y: finalY });
             
-            const ctx = annotationCanvasRef.current?.getContext('2d');
-            if (ctx && lastDrawPoint.current) {
-                ctx.beginPath();
-                ctx.moveTo(lastDrawPoint.current.x * renderScale, lastDrawPoint.current.y * renderScale);
-                ctx.lineTo(finalX * renderScale, finalY * renderScale);
+            // If it's a Shape, we just update the LAST point (so we have [Start, Current])
+            // Freehand appends points
+            const isShape = ['line', 'rectangle', 'circle', 'star', 'emphasis', 'box_highlight'].includes(currentPath.current.type);
+            
+            if (isShape) {
+                // For shapes, we just need start and current end point for preview
+                currentPath.current.points = [currentPath.current.points[0], { x: finalX, y: finalY }];
                 
-                ctx.lineWidth = currentPath.current.width * renderScale;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
+                // Force a redraw of the canvas to show the shape preview
+                redrawAnnotations();
                 
-                if (currentPath.current.isEraser) {
-                     ctx.globalCompositeOperation = 'destination-out';
-                     ctx.strokeStyle = 'rgba(0,0,0,1)';
-                     ctx.globalAlpha = 1.0;
-                } else if (currentPath.current.type === 'highlighter') {
-                     ctx.globalCompositeOperation = 'multiply';
-                     ctx.globalAlpha = strokeOpacity;
-                     ctx.strokeStyle = color;
-                } else {
-                     ctx.globalCompositeOperation = 'source-over';
-                     ctx.globalAlpha = 1.0;
-                     ctx.strokeStyle = color;
+                // Draw the current shape preview on top
+                const ctx = annotationCanvasRef.current?.getContext('2d');
+                if (ctx && currentPath.current) {
+                    const path = currentPath.current;
+                    const startP = path.points[0];
+                    const endP = path.points[1];
+                    
+                    ctx.beginPath();
+                    ctx.lineWidth = path.width * renderScale;
+                    ctx.strokeStyle = path.color;
+                    ctx.fillStyle = path.color;
+                    if (path.type === 'box_highlight') {
+                        ctx.globalCompositeOperation = 'multiply';
+                        ctx.globalAlpha = path.opacity;
+                        ctx.fillRect(startP.x * renderScale, startP.y * renderScale, (endP.x - startP.x) * renderScale, (endP.y - startP.y) * renderScale);
+                    } else if (path.type === 'line') {
+                        ctx.moveTo(startP.x * renderScale, startP.y * renderScale);
+                        ctx.lineTo(endP.x * renderScale, endP.y * renderScale);
+                        ctx.stroke();
+                    } else if (path.type === 'rectangle') {
+                        ctx.strokeRect(startP.x * renderScale, startP.y * renderScale, (endP.x - startP.x) * renderScale, (endP.y - startP.y) * renderScale);
+                    } else if (path.type === 'circle') {
+                        const radius = Math.sqrt(Math.pow(endP.x - startP.x, 2) + Math.pow(endP.y - startP.y, 2));
+                        ctx.arc(startP.x * renderScale, startP.y * renderScale, radius * renderScale, 0, 2 * Math.PI);
+                        ctx.stroke();
+                    } else if (path.type === 'star') {
+                        const radius = Math.sqrt(Math.pow(endP.x - startP.x, 2) + Math.pow(endP.y - startP.y, 2));
+                        drawStar(ctx, startP.x * renderScale, startP.y * renderScale, 5, radius * renderScale, (radius / 2) * renderScale);
+                        ctx.stroke();
+                    } else if (path.type === 'emphasis') {
+                        const midX = (startP.x + endP.x) / 2;
+                        const midY = Math.max(startP.y, endP.y) + 10;
+                        ctx.moveTo(startP.x * renderScale, startP.y * renderScale);
+                        ctx.quadraticCurveTo(midX * renderScale, midY * renderScale, endP.x * renderScale, endP.y * renderScale);
+                        // Offset line
+                        ctx.moveTo((startP.x + 2) * renderScale, (startP.y + 4) * renderScale);
+                        ctx.quadraticCurveTo(midX * renderScale, (midY + 4) * renderScale, (endP.x - 2) * renderScale, (endP.y + 4) * renderScale);
+                        ctx.stroke();
+                    }
+                    ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over';
                 }
-                ctx.stroke();
-                ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over';
+
+            } else {
+                // Freehand Logic
+                currentPath.current.points.push({ x: finalX, y: finalY });
+                
+                const ctx = annotationCanvasRef.current?.getContext('2d');
+                if (ctx && lastDrawPoint.current) {
+                    ctx.beginPath();
+                    ctx.moveTo(lastDrawPoint.current.x * renderScale, lastDrawPoint.current.y * renderScale);
+                    ctx.lineTo(finalX * renderScale, finalY * renderScale);
+                    
+                    ctx.lineWidth = currentPath.current.width * renderScale;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    
+                    if (currentPath.current.isEraser) {
+                         ctx.globalCompositeOperation = 'destination-out';
+                         ctx.strokeStyle = 'rgba(0,0,0,1)';
+                         ctx.globalAlpha = 1.0;
+                    } else if (currentPath.current.type === 'highlighter') {
+                         ctx.globalCompositeOperation = 'multiply';
+                         ctx.globalAlpha = strokeOpacity;
+                         ctx.strokeStyle = color;
+                    } else {
+                         ctx.globalCompositeOperation = 'source-over';
+                         ctx.globalAlpha = 1.0;
+                         ctx.strokeStyle = color;
+                    }
+                    ctx.stroke();
+                    ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over';
+                }
+                lastDrawPoint.current = { x: finalX, y: finalY };
             }
-            lastDrawPoint.current = { x: finalX, y: finalY };
         }
     };
 
@@ -1234,16 +1436,31 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
             if (tool === 'eraser' && eraserMode === 'magic') {
                 commitToHistory(annotations, stickyNotes, noteConnections);
             } else if (currentPath.current && currentPath.current.points.length > 0) {
-                const newAnnotations = { ...annotations, [pageNum]: [...(annotations[pageNum] || []), currentPath.current] };
-                commitToHistory(newAnnotations, stickyNotes, noteConnections);
+                // Check if shape has minimum size
+                if (['line', 'rectangle', 'circle', 'star', 'emphasis', 'box_highlight'].includes(currentPath.current.type)) {
+                    if (currentPath.current.points.length >= 2) {
+                        const p1 = currentPath.current.points[0];
+                        const p2 = currentPath.current.points[1];
+                        if (Math.hypot(p1.x - p2.x, p1.y - p2.y) > 5) {
+                             const newAnnotations = { ...annotations, [pageNum]: [...(annotations[pageNum] || []), currentPath.current] };
+                             commitToHistory(newAnnotations, stickyNotes, noteConnections);
+                        } else {
+                            redrawAnnotations(); // Clear preview if too small
+                        }
+                    }
+                } else {
+                    const newAnnotations = { ...annotations, [pageNum]: [...(annotations[pageNum] || []), currentPath.current] };
+                    commitToHistory(newAnnotations, stickyNotes, noteConnections);
+                }
                 currentPath.current = null;
             }
             lastDrawPoint.current = null;
+            drawStartPoint.current = null;
         }
     };
 
     const renderToolProperties = () => {
-        if (tool === 'select' || tool === 'note') return null;
+        if (tool === 'select' || tool === 'note' || tool === 'laser') return null;
         return (
             <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-white/90 backdrop-blur-md rounded-xl shadow-lg border border-gray-200 p-2 flex items-center gap-4 animate-fade-in">
                 {tool === 'eraser' ? (
@@ -1259,6 +1476,25 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                             <div className="w-4 h-4 rounded-full bg-gray-400" />
                         </div>
                         <div className="w-px h-6 bg-gray-300" />
+                        
+                        {/* Shape / Mode Selector */}
+                        <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5">
+                            <button onClick={() => setActiveShape('freehand')} className={`p-1 rounded ${activeShape === 'freehand' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-900'}`} title="Freehand"><Icon.Pen size={14} /></button>
+                            <button onClick={() => setActiveShape('line')} className={`p-1 rounded ${activeShape === 'line' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-900'}`} title="Straight Line"><div className="w-3.5 h-0.5 bg-current rotate-45 transform" /></button>
+                            {tool === 'highlighter' ? (
+                                <button onClick={() => setActiveShape('rectangle')} className={`p-1 rounded ${activeShape === 'rectangle' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-900'}`} title="Box Highlight"><Icon.ShapeRect size={14} /></button>
+                            ) : (
+                                <>
+                                    <button onClick={() => setActiveShape('rectangle')} className={`p-1 rounded ${activeShape === 'rectangle' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-900'}`} title="Rectangle"><Icon.ShapeRect size={14} /></button>
+                                    <button onClick={() => setActiveShape('circle')} className={`p-1 rounded ${activeShape === 'circle' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-900'}`} title="Circle"><Icon.ShapeCircle size={14} /></button>
+                                    <button onClick={() => setActiveShape('star')} className={`p-1 rounded ${activeShape === 'star' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-900'}`} title="Star"><Icon.Star size={14} /></button>
+                                    <button onClick={() => setActiveShape('emphasis')} className={`p-1 rounded ${activeShape === 'emphasis' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-900'}`} title="Emphasis Curve"><div className="w-3.5 h-1 border-b-2 border-current rounded-full" /></button>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="w-px h-6 bg-gray-300" />
+
                         {tool === 'highlighter' && (
                             <>
                                 <div className="flex items-center gap-2" title="Opacity">
@@ -1545,6 +1781,15 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                         {t === 'note' && <Icon.StickyNote size={18} />}
                                     </button>
                                 ))}
+                                {/* Laser Tool Button */}
+                                <button 
+                                    onClick={() => setTool('laser')} 
+                                    className={`p-1.5 rounded-md transition-all flex items-center justify-center ${tool === 'laser' ? 'bg-red-50 text-red-600 ring-1 ring-red-200 shadow' : 'text-gray-500 hover:text-gray-800'}`}
+                                    title="Laser Pointer"
+                                >
+                                    <div className="w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-sm" />
+                                </button>
+
                                 <div className="w-px h-5 bg-gray-300 mx-1 my-auto" />
                                 <div className="w-6 h-6 rounded my-auto border border-gray-300 shadow-sm relative overflow-hidden" title="Active Ink Color">
                                      <div className="w-full h-full" style={{ backgroundColor: color, opacity: tool === 'highlighter' ? strokeOpacity : 1 }} />
@@ -1564,7 +1809,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
 
                         <div 
                             ref={canvasContainerRef}
-                            className={`flex-1 relative overflow-hidden ${isRightPanning ? 'cursor-grabbing' : tool === 'select' ? 'cursor-default' : tool === 'pen' ? 'cursor-pen' : tool === 'highlighter' ? 'cursor-highlighter' : tool === 'eraser' ? 'cursor-eraser' : 'cursor-crosshair'}`}
+                            className={`flex-1 relative overflow-hidden ${isRightPanning ? 'cursor-grabbing' : tool === 'select' ? 'cursor-default' : tool === 'pen' ? 'cursor-pen' : tool === 'highlighter' ? 'cursor-highlighter' : tool === 'eraser' ? 'cursor-eraser' : tool === 'laser' ? 'cursor-crosshair' : 'cursor-crosshair'}`}
                             onMouseDown={handleCanvasMouseDown}
                             onMouseMove={handleCanvasMouseMove}
                             onMouseUp={handleCanvasMouseUp}
@@ -1630,6 +1875,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                         >
                                             <canvas ref={pdfCanvasRef} className="block" style={{ width: '100%', height: '100%' }} />
                                             <canvas ref={annotationCanvasRef} className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />
+                                            <canvas ref={laserCanvasRef} className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%', zIndex: 100 }} />
                                         </div>
                                     ) : sourceType === 'IMAGE' ? (
                                         <div 
@@ -1642,6 +1888,7 @@ export const NotepadScreen: React.FC<NotepadScreenProps> = ({ onBack }) => {
                                         >
                                             <img src={sourceData as string} alt="Uploaded" className="block" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                                             <canvas ref={annotationCanvasRef} className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />
+                                            <canvas ref={laserCanvasRef} className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%', zIndex: 100 }} />
                                         </div>
                                     ) : (
                                         <div className="w-[600px] h-[800px] bg-white flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 rounded-xl"><Icon.FileText size={48} className="mb-4 text-gray-300" /><p className="font-bold text-lg">Empty Canvas</p><p className="text-sm mt-2">Upload a PDF or Image to start annotating</p></div>

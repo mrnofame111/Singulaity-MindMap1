@@ -92,7 +92,8 @@ import {
   Notebook,
   FileUp,
   Wifi,
-  Database
+  Database,
+  Star
 } from 'lucide-react';
 
 export const Icon = {
@@ -190,5 +191,6 @@ export const Icon = {
   Notebook,
   FileUp,
   Wifi,
-  Database
+  Database,
+  Star
 };
