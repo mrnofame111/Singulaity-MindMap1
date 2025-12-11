@@ -129,15 +129,44 @@ export const generateSmartImage = async (
         },
         pixelRatio: pixelRatio,
         backgroundColor: backgroundStyle.startsWith('#') || backgroundStyle.startsWith('rgb') ? backgroundStyle : undefined,
-        fontEmbedCSS: '',
         skipAutoScale: true,
+        // CRITICAL FIX: Empty string prevents html-to-image from fetching remote CSS (Google Fonts) which causes CORS errors
+        fontEmbedCSS: '', 
         filter: (node: HTMLElement) => {
+            // Filter out external stylesheets/scripts that cause CORS issues during cloning
+            if (node.tagName === 'LINK') return false; 
+            if (node.tagName === 'SCRIPT') return false;
+            
             if (node.classList && excludeClasses.some(cls => node.classList.contains(cls))) {
                 return false;
             }
             return !node.className?.toString().includes('no-export');
         },
         onClone: (clonedNode: HTMLElement) => {
+            // FIX: Expand Scrollable Elements in the clone so full content renders
+            const elements = clonedNode.querySelectorAll('*');
+            elements.forEach((el: any) => {
+                // 1. Textareas: Set height to scrollHeight
+                if (el.tagName === 'TEXTAREA') {
+                    el.style.height = 'auto';
+                    el.style.height = el.scrollHeight + 'px';
+                    el.style.overflow = 'hidden'; 
+                    el.style.resize = 'none';
+                }
+                
+                // 2. Generic Scrollables: Check for scroll classes or styles
+                if (
+                    el.classList.contains('custom-scrollbar') || 
+                    el.classList.contains('overflow-y-auto') ||
+                    el.style.overflowY === 'auto' ||
+                    el.style.overflow === 'auto'
+                ) {
+                    el.style.height = 'auto';
+                    el.style.maxHeight = 'none';
+                    el.style.overflow = 'visible';
+                }
+            });
+
             // Append Watermark if requested
             if (exportConfig.showTitle) {
                 const watermark = document.createElement('div');
@@ -153,7 +182,7 @@ export const generateSmartImage = async (
                 watermark.style.fontWeight = 'bold';
                 watermark.style.color = '#333';
                 watermark.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
-                watermark.innerText = exportConfig.projectName || 'Singularity Mind Map';
+                watermark.innerText = exportConfig.projectName || 'Singularity MindMap';
                 clonedNode.appendChild(watermark);
             }
         }
