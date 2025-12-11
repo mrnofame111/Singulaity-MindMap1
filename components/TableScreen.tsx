@@ -325,7 +325,7 @@ const TableExportModal = ({ isOpen, onClose, elementRef, rootBlock, projectName 
                         }
                     });
                 }
-            });
+            } as any);
             setPreviewUrl(dataUrl);
         } catch (e) {
             console.error("Preview generation failed", e);
@@ -374,13 +374,13 @@ const TableExportModal = ({ isOpen, onClose, elementRef, rootBlock, projectName 
 
         try {
             if (format === 'PNG') {
-                const dataUrl = await htmlToImage.toPng(elementRef.current, configOptions);
+                const dataUrl = await htmlToImage.toPng(elementRef.current, configOptions as any);
                 const link = document.createElement('a');
                 link.download = `${fileName}.png`;
                 link.href = dataUrl;
                 link.click();
             } else if (format === 'PDF') {
-                const dataUrl = await htmlToImage.toPng(elementRef.current, configOptions);
+                const dataUrl = await htmlToImage.toPng(elementRef.current, configOptions as any);
                 const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [elementRef.current.scrollWidth, elementRef.current.scrollHeight] });
                 pdf.addImage(dataUrl, 'PNG', 0, 0, elementRef.current.scrollWidth, elementRef.current.scrollHeight);
                 pdf.save(`${fileName}.pdf`);
@@ -767,7 +767,7 @@ const BlockRenderer: React.FC<{
   // Image Dragging State
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const imgDragStartRef = useRef({ x: 0, y: 0 });
-  const imgStartPosRef = useRef({ x: 0, y: 0 });
+  const imgStartPosRef = useRef({ x: 0, y: 0, scale: 1 });
   
   // Hover State specifically for this block instance
   const [isHovered, setIsHovered] = useState(false);
@@ -834,7 +834,7 @@ const BlockRenderer: React.FC<{
           const scaleDelta = -e.deltaY * 0.001;
           const currentScale = block.imagePos?.scale || 1;
           const newScale = Math.max(0.1, Math.min(10, currentScale + scaleDelta));
-          onUpdate(block.id, { imagePos: { ...(block.imagePos || { x: 0, y: 0 }), scale: newScale } });
+          onUpdate(block.id, { imagePos: { ...(block.imagePos || { x: 0, y: 0, scale: 1 }), scale: newScale } });
       };
       el.addEventListener('wheel', onWheel, { passive: false });
       return () => el.removeEventListener('wheel', onWheel);
