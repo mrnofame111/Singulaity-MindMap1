@@ -62,28 +62,34 @@ export const getNotepadBoundingBox = (
     }
 
     // 2. Sticky Notes
-    stickyNotes.forEach(note => {
-        const width = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'table' || note.contentType === 'drawing' ? 300 : 220);
-        const height = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'drawing' ? 200 : 150);
-        
-        minX = Math.min(minX, note.x);
-        minY = Math.min(minY, note.y);
-        maxX = Math.max(maxX, note.x + width);
-        maxY = Math.max(maxY, note.y + height);
-    });
+    if (stickyNotes && stickyNotes.length > 0) {
+        stickyNotes.forEach(note => {
+            const width = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'table' || note.contentType === 'drawing' ? 300 : 220);
+            const height = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'drawing' ? 200 : 150);
+            
+            minX = Math.min(minX, note.x);
+            minY = Math.min(minY, note.y);
+            maxX = Math.max(maxX, note.x + width);
+            maxY = Math.max(maxY, note.y + height);
+        });
+    }
 
     // 3. Annotations
-    annotations.forEach(ann => {
-        ann.points.forEach((p: any) => {
-            minX = Math.min(minX, p.x);
-            minY = Math.min(minY, p.y);
-            maxX = Math.max(maxX, p.x);
-            maxY = Math.max(maxY, p.y);
+    if (annotations && annotations.length > 0) {
+        annotations.forEach(ann => {
+            if (ann.points) {
+                ann.points.forEach((p: any) => {
+                    minX = Math.min(minX, p.x);
+                    minY = Math.min(minY, p.y);
+                    maxX = Math.max(maxX, p.x);
+                    maxY = Math.max(maxY, p.y);
+                });
+            }
         });
-    });
+    }
 
-    // Default if empty
-    if (minX === Infinity) {
+    // Default if empty or invalid calculation
+    if (minX === Infinity || maxX === -Infinity) {
         minX = canvasCenter - 400;
         minY = canvasCenter - 300;
         maxX = canvasCenter + 400;
@@ -102,17 +108,32 @@ export const getNotepadBoundingBox = (
  * Generates an image Blob or Data URL from any element with smart bounding box.
  */
 export const generateSmartImage = async (
-    elementId: string,
+    elementOrId: string | HTMLElement,
     bounds: { x: number, y: number, width: number, height: number },
     exportConfig: ExportConfig,
     format: 'PNG' | 'JPEG' | 'SVG',
     pixelRatio: number = 2,
     excludeClasses: string[] = [] // New parameter to exclude elements by class
 ): Promise<string | null> => {
-    const element = document.getElementById(elementId);
+    let element: HTMLElement | null = typeof elementOrId === 'string' 
+        ? document.getElementById(elementOrId) 
+        : elementOrId;
+
     if (!element) {
         console.error("Export element not found");
         return null;
+    }
+
+    // FIX FOR NOTEPAD EXPORT:
+    // If targeting the inner content layer of Notepad, automatically switch to the root container (Grandparent).
+    // This ensures Sticky Notes (siblings of the content wrapper) are included and coordinates match the 
+    // world space (8000x8000) used in getNotepadBoundingBox.
+    if (element.id === 'notepad-content-layer') {
+        const rootContainer = element.parentElement?.parentElement;
+        if (rootContainer) {
+            console.log("Redirecting export target to Notepad Root Container for correct bounding box alignment.");
+            element = rootContainer as HTMLElement;
+        }
     }
 
     const backgroundStyle = exportConfig.backgroundStyle || '#ffffff';
@@ -121,6 +142,7 @@ export const generateSmartImage = async (
         width: bounds.width,
         height: bounds.height,
         style: {
+            // CRITICAL: Translate the world-space view to the bounding box origin (0,0)
             transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
             transformOrigin: 'top left',
             width: `${bounds.width}px`,
@@ -420,9 +442,7 @@ export const generateInteractiveNotepadHTML = (
     document.body.removeChild(link);
 };
 
-/**
- * Generates a standalone Interactive HTML file for Mind Maps.
- */
+// ... existing helpers ...
 export const generateInteractiveHTML = (
     nodes: SingularityNode[], 
     edgeData: Record<string, EdgeOptions>, 
