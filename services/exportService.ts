@@ -1,6 +1,9 @@
 
 import { SingularityNode, EdgeOptions, ExportConfig } from '../types';
 import * as htmlToImage from 'html-to-image';
+import { jsPDF } from 'jspdf';
+
+// --- MIND MAP HELPERS ---
 
 /**
  * Calculates the bounding box of the entire map content.
@@ -34,16 +37,77 @@ export const getMapBoundingBox = (nodes: SingularityNode[], padding: number = 10
     };
 };
 
+// --- NOTEPAD HELPERS ---
+
 /**
- * Generates an image Blob or Data URL from the map.
- * Used for both Preview and Final Download.
+ * Calculates bounding box for Notepad content (Notes + Annotations + Background)
  */
-export const generateMapImage = async (
-    nodes: SingularityNode[], 
-    format: 'PNG' | 'JPEG' | 'SVG', 
+export const getNotepadBoundingBox = (
+    stickyNotes: any[], 
+    annotations: any[], 
+    contentDimensions: { width: number, height: number } | null,
+    canvasCenter: number,
+    padding: number = 100
+) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    // 1. Background Content (PDF/Image)
+    if (contentDimensions) {
+        const halfW = contentDimensions.width / 2;
+        const halfH = contentDimensions.height / 2;
+        minX = Math.min(minX, canvasCenter - halfW);
+        minY = Math.min(minY, canvasCenter - halfH);
+        maxX = Math.max(maxX, canvasCenter + halfW);
+        maxY = Math.max(maxY, canvasCenter + halfH);
+    }
+
+    // 2. Sticky Notes
+    stickyNotes.forEach(note => {
+        const width = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'table' || note.contentType === 'drawing' ? 300 : 220);
+        const height = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'drawing' ? 200 : 150);
+        
+        minX = Math.min(minX, note.x);
+        minY = Math.min(minY, note.y);
+        maxX = Math.max(maxX, note.x + width);
+        maxY = Math.max(maxY, note.y + height);
+    });
+
+    // 3. Annotations
+    annotations.forEach(ann => {
+        ann.points.forEach((p: any) => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+        });
+    });
+
+    // Default if empty
+    if (minX === Infinity) {
+        minX = canvasCenter - 400;
+        minY = canvasCenter - 300;
+        maxX = canvasCenter + 400;
+        maxY = canvasCenter + 300;
+    }
+
+    return {
+        x: minX - padding,
+        y: minY - padding,
+        width: (maxX - minX) + (padding * 2),
+        height: (maxY - minY) + (padding * 2)
+    };
+};
+
+/**
+ * Generates an image Blob or Data URL from any element with smart bounding box.
+ */
+export const generateSmartImage = async (
     elementId: string,
+    bounds: { x: number, y: number, width: number, height: number },
     exportConfig: ExportConfig,
-    pixelRatio: number = 1
+    format: 'PNG' | 'JPEG' | 'SVG',
+    pixelRatio: number = 2,
+    excludeClasses: string[] = [] // New parameter to exclude elements by class
 ): Promise<string | null> => {
     const element = document.getElementById(elementId);
     if (!element) {
@@ -51,10 +115,8 @@ export const generateMapImage = async (
         return null;
     }
 
-    const bounds = getMapBoundingBox(nodes, exportConfig.padding);
-    const backgroundStyle = exportConfig.backgroundStyle || '#f0f4f8';
+    const backgroundStyle = exportConfig.backgroundStyle || '#ffffff';
 
-    // Configuration for html-to-image
     const config = {
         width: bounds.width,
         height: bounds.height,
@@ -67,163 +129,270 @@ export const generateMapImage = async (
         },
         pixelRatio: pixelRatio,
         backgroundColor: backgroundStyle.startsWith('#') || backgroundStyle.startsWith('rgb') ? backgroundStyle : undefined,
-        fontEmbedCSS: '', // Disable font embedding to prevent CORS errors
-        skipAutoScale: true, // Prevent automatic scaling which can distort large maps
+        fontEmbedCSS: '',
+        skipAutoScale: true,
         filter: (node: HTMLElement) => {
-            // Exclude UI controls
+            if (node.classList && excludeClasses.some(cls => node.classList.contains(cls))) {
+                return false;
+            }
             return !node.className?.toString().includes('no-export');
         },
         onClone: (clonedNode: HTMLElement) => {
-            // --- OVERLAY INJECTION ---
-            const overlay = document.createElement('div');
-            overlay.style.position = 'absolute';
-            overlay.style.top = '0';
-            overlay.style.left = '0';
-            overlay.style.width = '100%';
-            overlay.style.height = '100%';
-            overlay.style.pointerEvents = 'none';
-            overlay.style.zIndex = '9999';
-            overlay.style.display = 'flex';
-            overlay.style.flexDirection = 'column';
-            overlay.style.justifyContent = 'space-between';
-            overlay.style.padding = '40px';
-            overlay.style.boxSizing = 'border-box';
-
-            // 1. TOP LEFT: Logo & Title
-            const topSection = document.createElement('div');
-            topSection.style.display = 'flex';
-            topSection.style.flexDirection = 'column';
-            topSection.style.gap = '15px';
-            topSection.style.alignItems = 'flex-start';
-
-            // Logo Badge
-            const logo = document.createElement('div');
-            logo.innerHTML = `
-                <div style="display:flex; align-items:center; gap:12px; background: rgba(255,255,255,0.95); padding: 12px 24px; border-radius: 50px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.5); backdrop-filter: blur(12px);">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"></path>
-                        <path d="M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8z"></path>
-                    </svg>
-                    <span style="font-family: 'Fredoka', 'Nunito', sans-serif; font-weight: 700; font-size: 18px; color: #1e293b; letter-spacing: 0.5px; white-space: nowrap;">Generated by Singularity Mind Map</span>
-                </div>
-            `;
-            topSection.appendChild(logo);
-
-            // Optional Title
-            if (exportConfig.showTitle && exportConfig.projectName) {
-                const titleCard = document.createElement('div');
-                titleCard.style.cssText = `
-                    background: rgba(255, 255, 255, 0.7);
-                    backdrop-filter: blur(4px);
-                    padding: 10px 20px;
-                    border-radius: 12px;
-                    border-left: 5px solid #4F46E5;
-                    margin-left: 5px;
-                `;
-                const title = document.createElement('h1');
-                title.innerText = exportConfig.projectName;
-                title.style.cssText = `
-                    font-family: 'Nunito', sans-serif; 
-                    font-weight: 900; 
-                    font-size: 42px; 
-                    color: #0f172a; 
-                    margin: 0; 
-                    line-height: 1.1;
-                    text-shadow: 0 2px 0 rgba(255,255,255,0.8);
-                `;
-                titleCard.appendChild(title);
-                topSection.appendChild(titleCard);
+            // Append Watermark if requested
+            if (exportConfig.showTitle) {
+                const watermark = document.createElement('div');
+                watermark.style.position = 'absolute';
+                watermark.style.bottom = '20px';
+                watermark.style.right = '20px';
+                watermark.style.padding = '8px 16px';
+                watermark.style.background = 'rgba(255,255,255,0.8)';
+                watermark.style.borderRadius = '20px';
+                watermark.style.backdropFilter = 'blur(4px)';
+                watermark.style.fontFamily = 'sans-serif';
+                watermark.style.fontSize = '12px';
+                watermark.style.fontWeight = 'bold';
+                watermark.style.color = '#333';
+                watermark.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
+                watermark.innerText = exportConfig.projectName || 'Singularity Mind Map';
+                clonedNode.appendChild(watermark);
             }
-            overlay.appendChild(topSection);
-
-            // 2. BOTTOM LEFT: Metadata
-            // Robust Date Logic (Fix)
-            let dateStr = "Date Error";
-            let timeStr = "--:--:--";
-            
-            try {
-                const now = new Date();
-                if (!isNaN(now.getTime())) {
-                    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-                    const pad = (num: number) => num.toString().padStart(2, '0');
-
-                    const day = now.getDate();
-                    const month = months[now.getMonth()];
-                    const year = now.getFullYear();
-                    
-                    // Format: 29, November, 2025
-                    dateStr = `${day}, ${month}, ${year}`;
-                    
-                    // Format: HH:MM:SS
-                    timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-                }
-            } catch (e) {
-                console.error("Date formatting failed during export", e);
-            }
-
-            const bottomSection = document.createElement('div');
-            bottomSection.innerHTML = `
-                <div style="font-family: 'Nunito', sans-serif; font-size: 14px; color: #475569; background: rgba(255,255,255,0.9); padding: 12px 20px; border-radius: 12px; backdrop-filter: blur(8px); display: inline-flex; flex-direction: column; gap: 4px; border: 1px solid rgba(203, 213, 225, 0.5); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                        <span style="font-weight: 800; color: #0f172a;">${dateStr}</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                        <span style="font-family: monospace; letter-spacing: 0.5px; font-weight: 600;">${timeStr}</span>
-                    </div>
-                </div>
-            `;
-            overlay.appendChild(bottomSection);
-
-            clonedNode.appendChild(overlay);
         }
     };
 
     try {
-        if (format === 'SVG') {
-            return await htmlToImage.toSvg(element, config);
-        } else if (format === 'JPEG') {
-            return await htmlToImage.toJpeg(element, config);
-        } else {
-            return await htmlToImage.toPng(element, config);
-        }
+        if (format === 'SVG') return await htmlToImage.toSvg(element, config);
+        if (format === 'JPEG') return await htmlToImage.toJpeg(element, config);
+        return await htmlToImage.toPng(element, config);
     } catch (err) {
-        console.error('Image Generation Failed:', err);
+        console.error('Image Gen Failed:', err);
         return null;
     }
 };
 
-/**
- * Public export function triggered by UI
- */
+// Legacy Wrapper for MindMaps
+export const generateMapImage = async (
+    nodes: SingularityNode[], 
+    format: 'PNG' | 'JPEG' | 'SVG', 
+    elementId: string,
+    exportConfig: ExportConfig,
+    pixelRatio: number = 1
+): Promise<string | null> => {
+    const bounds = getMapBoundingBox(nodes, exportConfig.padding);
+    return generateSmartImage(elementId, bounds, exportConfig, format, pixelRatio);
+};
+
+// --- UNIVERSAL EXPORTERS ---
+
+export const exportToPDF = async (
+    imageDataUrl: string, 
+    width: number, 
+    height: number, 
+    filename: string
+) => {
+    // Determine orientation based on aspect ratio
+    const orientation = width > height ? 'l' : 'p';
+    
+    // Initialize jsPDF
+    // @ts-ignore
+    const pdf = new jsPDF({
+        orientation: orientation,
+        unit: 'px',
+        format: [width, height] 
+    });
+
+    // Add Image fitting the page
+    pdf.addImage(imageDataUrl, 'PNG', 0, 0, width, height);
+    pdf.save(`${filename}.pdf`);
+};
+
 export const exportSmartImage = async (
     nodes: SingularityNode[], 
     projectName: string, 
-    format: 'PNG' | 'JPEG' | 'SVG', 
+    format: 'PNG' | 'JPEG' | 'SVG' | 'PDF', 
     elementId: string,
     exportConfig: ExportConfig
 ) => {
-    // For final export, we use a higher pixel ratio for better quality
-    const pixelRatio = format === 'SVG' ? 1 : 2; 
+    const bounds = getMapBoundingBox(nodes, exportConfig.padding);
     
-    // Ensure project name is passed if not in config
-    const finalConfig = { ...exportConfig, projectName };
+    // For PDF, we generate a high-res PNG first
+    const genFormat = format === 'PDF' ? 'PNG' : format;
+    const pixelRatio = format === 'SVG' ? 1 : 2;
 
-    const dataUrl = await generateMapImage(nodes, format, elementId, finalConfig, pixelRatio);
+    const dataUrl = await generateSmartImage(elementId, bounds, exportConfig, genFormat, pixelRatio);
 
     if (dataUrl) {
-        const link = document.createElement('a');
-        link.download = `${projectName.replace(/\s+/g, '_')}.${format.toLowerCase()}`;
-        link.href = dataUrl;
-        link.click();
+        if (format === 'PDF') {
+            exportToPDF(dataUrl, bounds.width, bounds.height, projectName.replace(/\s+/g, '_'));
+        } else {
+            const link = document.createElement('a');
+            link.download = `${projectName.replace(/\s+/g, '_')}.${format.toLowerCase()}`;
+            link.href = dataUrl;
+            link.click();
+        }
     } else {
-        alert("Export failed. Please check the console for details.");
+        alert("Export failed.");
     }
 };
 
 /**
- * Generates a standalone Interactive HTML file.
+ * Generates a truly interactive Notepad HTML file.
+ * Preserves voice notes as <audio> tags and other notes as DOM elements.
+ */
+export const generateInteractiveNotepadHTML = (
+    stickyNotes: any[],
+    backgroundDataUrl: string, // Snapshot of the canvas (PDF+Drawings) WITHOUT notes
+    bounds: { x: number, y: number, width: number, height: number },
+    projectName: string
+) => {
+    // We construct the HTML string manually to ensure full interactivity
+    
+    const notesHtml = stickyNotes.map(note => {
+        // Adjust coordinates relative to the export bounds
+        const relX = note.x - bounds.x;
+        const relY = note.y - bounds.y;
+        const width = note.minimized ? 40 : (note.contentType === 'image' || note.contentType === 'table' || note.contentType === 'drawing' ? 300 : 220);
+        const height = note.minimized ? 40 : 'auto';
+        
+        let contentHtml = '';
+        
+        if (note.minimized) {
+            contentHtml = `<div class="minimized-dot"></div>`;
+        } else if (note.contentType === 'image') {
+            contentHtml = `<img src="${note.mediaUrl}" class="note-image" />`;
+        } else if (note.contentType === 'audio') {
+            contentHtml = `
+                <div class="audio-player">
+                    <span class="audio-label">Voice Note</span>
+                    <audio controls src="${note.mediaUrl}"></audio>
+                </div>
+            `;
+        } else if (note.contentType === 'drawing') {
+             contentHtml = `<img src="${note.mediaUrl}" class="note-drawing" />`;
+        } else if (note.contentType === 'table' && note.tableData) {
+             const rows = note.tableData.map((row: string[]) => 
+                 `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`
+             ).join('');
+             contentHtml = `<table class="note-table">${rows}</table>`;
+        } else {
+             // Text
+             contentHtml = `<div class="note-text">${note.text || ''}</div>`;
+        }
+
+        return `
+            <div class="sticky-note" style="left: ${relX}px; top: ${relY}px; width: ${width}px; background-color: ${note.color};">
+                ${contentHtml}
+            </div>
+        `;
+    }).join('\n');
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${projectName}</title>
+    <style>
+        body { margin: 0; background-color: #f0f4f8; display: flex; justify-content: center; padding: 40px; font-family: sans-serif; }
+        .canvas-container {
+            position: relative;
+            background-color: white;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+            width: ${bounds.width}px;
+            height: ${bounds.height}px;
+        }
+        .background-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .sticky-note {
+            position: absolute;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 2px 4px 12px rgba(0,0,0,0.15);
+            z-index: 10;
+            font-size: 14px;
+            color: #333;
+            box-sizing: border-box;
+            border: 1px solid rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        }
+        .sticky-note:hover {
+            transform: scale(1.02);
+            z-index: 20;
+            box-shadow: 4px 8px 20px rgba(0,0,0,0.2);
+        }
+        .note-text {
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+        .note-image, .note-drawing {
+            width: 100%;
+            height: auto;
+            display: block;
+            border-radius: 4px;
+        }
+        .audio-player {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        .audio-label {
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+            color: #666;
+        }
+        audio {
+            width: 100%;
+            height: 30px;
+        }
+        .note-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .note-table td {
+            border: 1px solid #ccc;
+            padding: 4px;
+            background: white;
+        }
+        .minimized-dot {
+            width: 20px;
+            height: 20px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 50%;
+            margin: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas-container">
+        <img src="${backgroundDataUrl}" class="background-layer" />
+        ${notesHtml}
+    </div>
+</body>
+</html>`;
+
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${projectName.replace(/\s+/g, '_')}_interactive.html`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+/**
+ * Generates a standalone Interactive HTML file for Mind Maps.
  */
 export const generateInteractiveHTML = (
     nodes: SingularityNode[], 

@@ -10,7 +10,7 @@ interface ExportPreviewModalProps {
   onClose: () => void;
   nodes: SingularityNode[];
   projectName: string;
-  format: 'PNG' | 'JPEG' | 'SVG';
+  format: 'PNG' | 'JPEG' | 'SVG' | 'PDF' | 'HTML' | 'DOC';
   elementId: string;
 }
 
@@ -33,26 +33,29 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
   onClose, 
   nodes, 
   projectName, 
-  format,
+  format: initialFormat,
   elementId 
 }) => {
+  const [format, setFormat] = useState(initialFormat);
   const [bgType, setBgType] = useState<'SOLID' | 'GRADIENT' | 'PATTERN' | 'THEME'>('SOLID');
   const [selectedBg, setSelectedBg] = useState('#f0f4f8');
   const [showTitle, setShowTitle] = useState(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+      setFormat(initialFormat);
+  }, [initialFormat]);
+
   // Generate preview when settings change
   useEffect(() => {
     if (isOpen) {
         generatePreview();
     }
-  }, [isOpen, selectedBg, format, showTitle]);
+  }, [isOpen, selectedBg, showTitle]); // Don't regenerate on format change for Image/PDF previews as they look same
 
   const getBackgroundStyle = () => {
       let backgroundStyle = selectedBg;
-      
-      // Pattern Handling: patterns need background-size too to look right in html-to-image
       if (bgType === 'PATTERN') {
           const p = PATTERNS.find(pat => pat.style.includes(selectedBg) || pat.style === selectedBg);
           if (p) {
@@ -66,12 +69,13 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
       setIsLoading(true);
       // Wait for UI to render
       setTimeout(async () => {
-          const url = await generateMapImage(nodes, format, elementId, {
+          // We always preview as PNG regardless of final format
+          const url = await generateMapImage(nodes, 'PNG', elementId, {
               backgroundStyle: getBackgroundStyle(),
               padding: 50,
               showTitle: showTitle,
               projectName: projectName
-          }, 0.8); // Lower scale for preview speed
+          }, 0.8); 
           
           setPreviewUrl(url);
           setIsLoading(false);
@@ -79,7 +83,19 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
   };
 
   const handleDownload = () => {
-      exportSmartImage(nodes, projectName, format, elementId, {
+      // Pass the selected format to the export service
+      // SVG/PNG/JPEG/PDF are handled via visual capture
+      // HTML/DOC are handled differently in SingularityCanvas, but here we can try to support if needed
+      // For now, this modal supports Image/PDF visual exports primarily.
+      
+      const exportFmt = (format === 'HTML' || format === 'DOC') ? 'PNG' : format; // Fallback to PNG for incompatible formats in visual exporter
+      
+      if (format === 'HTML' || format === 'DOC') {
+          alert("Please use the specific HTML or DOC export buttons in the menu for data-rich exports. This preview is for visual formats.");
+          return;
+      }
+
+      exportSmartImage(nodes, projectName, exportFmt as any, elementId, {
           backgroundStyle: getBackgroundStyle(),
           padding: 100,
           showTitle: showTitle,
@@ -92,7 +108,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white dark:bg-[#1e2030] w-full max-w-4xl h-[80vh] rounded-3xl shadow-2xl border border-white/20 flex overflow-hidden">
+      <div className="bg-white dark:bg-[#1e2030] w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl border border-white/20 flex overflow-hidden">
         
         {/* Left: Preview Area */}
         <div className="flex-1 bg-gray-100 dark:bg-black/50 relative flex items-center justify-center p-8 overflow-hidden">
@@ -106,11 +122,14 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                     <span className="text-gray-500 font-bold animate-pulse">Rendering Preview...</span>
                 </div>
             ) : previewUrl ? (
-                <img 
-                    src={previewUrl} 
-                    alt="Map Preview" 
-                    className="max-w-full max-h-full object-contain shadow-2xl rounded-lg border border-white/20"
-                />
+                <div className="relative shadow-2xl border border-gray-200 bg-white max-w-full max-h-full overflow-auto custom-scrollbar">
+                     <img 
+                        src={previewUrl} 
+                        alt="Map Preview" 
+                        style={{ maxWidth: 'none', maxHeight: 'none' }} // Allow scroll if needed
+                        className="block"
+                    />
+                </div>
             ) : (
                 <div className="text-red-400 font-bold">Preview Failed</div>
             )}
@@ -119,16 +138,32 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
         {/* Right: Controls */}
         <div className="w-80 bg-white dark:bg-[#1e2030] border-l border-gray-200 dark:border-white/10 flex flex-col">
             <div className="p-6 border-b border-gray-200 dark:border-white/10">
-                <h2 className="text-xl font-display font-bold text-gray-800 dark:text-white mb-1">Export {format}</h2>
+                <h2 className="text-xl font-display font-bold text-gray-800 dark:text-white mb-1">Export Options</h2>
                 <p className="text-sm text-gray-500">Customize appearance before downloading.</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
                 
+                {/* Format Selection */}
+                <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">Format</label>
+                    <div className="grid grid-cols-2 gap-2">
+                        {['PNG', 'JPEG', 'SVG', 'PDF'].map(f => (
+                            <button
+                                key={f}
+                                onClick={() => setFormat(f as any)}
+                                className={`py-2 text-xs font-bold rounded-lg border transition-all ${format === f ? 'bg-indigo-50 border-indigo-500 text-indigo-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                            >
+                                {f}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
                 {/* Background Type Selector */}
                 <div>
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">Background Type</label>
-                    <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-xl">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">Background</label>
+                    <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-xl mb-3">
                         {['SOLID', 'GRADIENT', 'PATTERN', 'THEME'].map(t => (
                             <button
                                 key={t}
@@ -139,11 +174,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                             </button>
                         ))}
                     </div>
-                </div>
-
-                {/* Options Grid */}
-                <div>
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">Select Style</label>
+                    
                     <div className="grid grid-cols-4 gap-2">
                         {bgType === 'SOLID' && BG_COLORS.map(c => (
                             <button
@@ -153,14 +184,6 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                                 style={{ backgroundColor: c }}
                             />
                         ))}
-                        
-                        {bgType === 'SOLID' && (
-                             <label className="aspect-square rounded-full border border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:bg-gray-50">
-                                 <Icon.Plus size={16} className="text-gray-400" />
-                                 <input type="color" className="hidden" onChange={(e) => setSelectedBg(e.target.value)} />
-                             </label>
-                        )}
-
                         {bgType === 'GRADIENT' && GRADIENTS.map(g => (
                             <button
                                 key={g}
@@ -169,7 +192,6 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                                 style={{ background: g }}
                             />
                         ))}
-
                         {bgType === 'PATTERN' && PATTERNS.map((p, i) => (
                             <button
                                 key={i}
@@ -179,7 +201,6 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                                 title={p.label}
                             />
                         ))}
-
                         {bgType === 'THEME' && Object.values(APP_THEMES).map((theme: any) => (
                             <button
                                 key={theme.id}
@@ -194,9 +215,9 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
 
                 {/* Overlay Options */}
                 <div>
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">Overlay Options</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">Overlay</label>
                     <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-200 dark:border-white/10">
-                        <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Include Project Title</span>
+                        <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Project Title</span>
                         <div 
                             onClick={() => setShowTitle(!showTitle)}
                             className={`w-10 h-6 rounded-full relative cursor-pointer transition-colors ${showTitle ? 'bg-green-500' : 'bg-gray-300'}`}
@@ -204,23 +225,20 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                             <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${showTitle ? 'left-5' : 'left-1'}`} />
                         </div>
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-2">
-                        Watermark logo and metadata will always be included.
-                    </p>
                 </div>
 
             </div>
 
-            <div className="p-6 border-t border-gray-200 dark:border-white/10 flex flex-col gap-3">
+            <div className="p-6 border-t border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5">
                 <button 
                     onClick={handleDownload}
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
-                    <Icon.Download size={18} /> Download High-Res
+                    <Icon.Download size={20} /> Download {format}
                 </button>
                 <button 
                     onClick={onClose}
-                    className="w-full py-3 text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl font-bold transition-colors"
+                    className="w-full mt-3 py-3 text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl font-bold transition-colors"
                 >
                     Cancel
                 </button>
