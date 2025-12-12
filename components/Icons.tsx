@@ -95,7 +95,18 @@ import {
   Database,
   Star,
   Ruler,
-  CalendarDays
+  CalendarDays,
+  KanbanSquare,
+  ListFilter,
+  MessageSquare,
+  Clock,
+  Pause,
+  Bot,
+  LayoutGrid,
+  Filter,
+  Archive,
+  MoreVertical,
+  Calendar
 } from 'lucide-react';
 
 export const Icon = {
@@ -109,6 +120,7 @@ export const Icon = {
   Settings,
   Search,
   More: MoreHorizontal,
+  MoreVert: MoreVertical,
   Sparkles,
   Trash: Trash2,
   Maximize,
@@ -198,5 +210,14 @@ export const Icon = {
   Square,
   Circle,
   Scale: CalendarDays,
-  Calendar: CalendarDays
+  Calendar: Calendar,
+  Board: KanbanSquare,
+  Filter: Filter,
+  ListFilter: ListFilter,
+  Comment: MessageSquare,
+  Clock,
+  Pause,
+  Bot,
+  LayoutGrid,
+  Archive
 };

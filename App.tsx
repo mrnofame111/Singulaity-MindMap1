@@ -8,15 +8,15 @@ import { migrateLocalMapsToCloud, saveMapToCloud, createMapInCloud, loadMapFromC
 import { getProfile } from './services/profileService';
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
-// This drastically reduces the initial load time by splitting code into chunks.
 const SingularityCanvas = lazy(() => import('./components/SingularityCanvas'));
 const LandingPage = lazy(() => import('./components/LandingPage').then(module => ({ default: module.LandingPage })));
 const HomeScreen = lazy(() => import('./components/HomeScreen').then(module => ({ default: module.HomeScreen })));
 const NotepadScreen = lazy(() => import('./components/NotepadScreen').then(module => ({ default: module.NotepadScreen })));
 const TableScreen = lazy(() => import('./components/TableScreen').then(module => ({ default: module.TableScreen })));
 const ScaleScreen = lazy(() => import('./components/ScaleScreen').then(module => ({ default: module.ScaleScreen })));
+const BoardScreen = lazy(() => import('./components/BoardScreen').then(module => ({ default: module.BoardScreen })));
 
-type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD' | 'TABLES' | 'SCALES';
+type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD' | 'TABLES' | 'SCALES' | 'BOARD';
 
 // Loading Component for Suspense
 const GlobalLoader = ({ text }: { text?: string }) => (
@@ -131,7 +131,7 @@ const App: React.FC = () => {
   };
 
   const handleCreateMap = async (initialData?: any) => {
-      const newId = generateId(); // Note: For Cloud, Supabase generates UUIDs usually, but we can use generated ID for optimistic UI
+      const newId = generateId(); 
       const name = initialData?.projectName || 'Untitled Mind Map';
       
       const mapData = {
@@ -155,13 +155,11 @@ const App: React.FC = () => {
           } catch (e: any) {
               if (e.message === CLOUD_UNAVAILABLE) {
                   console.warn("Cloud unavailable (tables missing). Creating locally.");
-                  // Fallback local silent
                   saveLocal(newId, name, mapData);
                   setActiveMapId(newId);
               } else {
                   console.error("Failed to create map in cloud", e);
                   alert("Failed to create map online. Saving locally.");
-                  // Fallback local with alert
                   saveLocal(newId, name, mapData);
                   setActiveMapId(newId);
               }
@@ -209,6 +207,7 @@ const App: React.FC = () => {
               onOpenNotepad={() => setCurrentView('NOTEPAD')}
               onOpenTables={() => setCurrentView('TABLES')}
               onOpenScales={() => setCurrentView('SCALES')}
+              onOpenBoard={() => setCurrentView('BOARD')}
               onBackToLanding={() => setCurrentView('LANDING')}
               onLoginClick={() => setIsAuthModalOpen(true)}
               user={user}
@@ -237,6 +236,10 @@ const App: React.FC = () => {
 
         {currentView === 'SCALES' && (
             <ScaleScreen onBack={() => setCurrentView('HOME')} />
+        )}
+
+        {currentView === 'BOARD' && (
+            <BoardScreen onBack={() => setCurrentView('HOME')} />
         )}
       </Suspense>
       

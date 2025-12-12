@@ -21,6 +21,7 @@ interface HomeScreenProps {
     onOpenNotepad: () => void;
     onOpenTables: () => void;
     onOpenScales: () => void;
+    onOpenBoard: () => void;
     onBackToLanding: () => void;
     onLoginClick: () => void; 
     user: any; 
@@ -28,7 +29,7 @@ interface HomeScreenProps {
 
 type TabType = 'MY_MAPS' | 'TEMPLATES' | 'SHARED' | 'TRASH';
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, onOpenNotepad, onOpenTables, onOpenScales, onBackToLanding, onLoginClick, user }) => {
+export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, onOpenNotepad, onOpenTables, onOpenScales, onOpenBoard, onBackToLanding, onLoginClick, user }) => {
     const [maps, setMaps] = useState<MapMetadata[]>([]);
     const [search, setSearch] = useState('');
     const [activeTab, setActiveTab] = useState<TabType>('MY_MAPS');
@@ -315,7 +316,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                         {!isSidebarCollapsed && <span className="truncate">My Blocks</span>}
                     </button>
 
-                    {/* MY TIMELINE LINK (UPDATED) */}
+                    {/* MY TIMELINE LINK */}
                     <button 
                         onClick={onOpenScales}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-900 ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
@@ -323,6 +324,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                     >
                         <Icon.Scale size={18} className="text-purple-500" /> 
                         {!isSidebarCollapsed && <span className="truncate">My Timeline</span>}
+                    </button>
+
+                    {/* MY BOARD LINK (NEW) */}
+                    <button 
+                        onClick={onOpenBoard}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-900 ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
+                        title={isSidebarCollapsed ? "My Board" : undefined}
+                    >
+                        <Icon.Board size={18} className="text-indigo-500" /> 
+                        {!isSidebarCollapsed && <span className="truncate">My Board</span>}
                     </button>
                     
                     <div className="h-px bg-gray-100 my-2" />
