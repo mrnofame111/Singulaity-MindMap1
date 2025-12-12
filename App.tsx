@@ -14,8 +14,9 @@ const LandingPage = lazy(() => import('./components/LandingPage').then(module =>
 const HomeScreen = lazy(() => import('./components/HomeScreen').then(module => ({ default: module.HomeScreen })));
 const NotepadScreen = lazy(() => import('./components/NotepadScreen').then(module => ({ default: module.NotepadScreen })));
 const TableScreen = lazy(() => import('./components/TableScreen').then(module => ({ default: module.TableScreen })));
+const ScaleScreen = lazy(() => import('./components/ScaleScreen').then(module => ({ default: module.ScaleScreen })));
 
-type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD' | 'TABLES';
+type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD' | 'TABLES' | 'SCALES';
 
 // Loading Component for Suspense
 const GlobalLoader = ({ text }: { text?: string }) => (
@@ -207,6 +208,7 @@ const App: React.FC = () => {
               onCreateMap={handleCreateMap}
               onOpenNotepad={() => setCurrentView('NOTEPAD')}
               onOpenTables={() => setCurrentView('TABLES')}
+              onOpenScales={() => setCurrentView('SCALES')}
               onBackToLanding={() => setCurrentView('LANDING')}
               onLoginClick={() => setIsAuthModalOpen(true)}
               user={user}
@@ -231,6 +233,10 @@ const App: React.FC = () => {
 
         {currentView === 'TABLES' && (
             <TableScreen onBack={() => setCurrentView('HOME')} />
+        )}
+
+        {currentView === 'SCALES' && (
+            <ScaleScreen onBack={() => setCurrentView('HOME')} />
         )}
       </Suspense>
       

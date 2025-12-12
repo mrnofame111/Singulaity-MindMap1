@@ -93,7 +93,9 @@ import {
   FileUp,
   Wifi,
   Database,
-  Star
+  Star,
+  Ruler,
+  CalendarDays
 } from 'lucide-react';
 
 export const Icon = {
@@ -194,5 +196,7 @@ export const Icon = {
   Database,
   Star,
   Square,
-  Circle
+  Circle,
+  Scale: CalendarDays,
+  Calendar: CalendarDays
 };
