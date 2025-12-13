@@ -75,7 +75,7 @@ const generateHtmlContent = (root: Block, title: string) => {
             let inner = '';
             
             if (block.contentType === 'text') {
-                inner = `<textarea readonly class="content-text">${block.content || ''}</textarea>`;
+                inner = `<textarea readonly class="content-text">${(block.content || '').replace(/</g, '&lt;')}</textarea>`;
             } 
             else if (block.contentType === 'image' && block.imageUrl) {
                 inner = `
@@ -87,21 +87,21 @@ const generateHtmlContent = (root: Block, title: string) => {
                 const items = block.todoItems?.map(i => `
                     <div class="todo-item" onclick="toggleTodo(this)">
                         <input type="checkbox" ${i.done ? 'checked' : ''} pointer-events="none">
-                        <span class="${i.done ? 'done' : ''}">${i.text}</span>
+                        <span class="${i.done ? 'done' : ''}">${(i.text || '').replace(/</g, '&lt;')}</span>
                     </div>
                 `).join('') || '';
                 inner = `<div class="content-todo"><h3>Task List</h3>${items}</div>`;
             } 
             else if (block.contentType === 'code') {
-                // We inject the code into a data attribute so the JS can read it easily
-                const safeCode = (block.content || '').replace(/"/g, '&quot;');
+                // Escape code content
+                const safeCode = (block.content || '').replace(/</g, '&lt;');
                 inner = `
                     <div class="content-code">
                         <div class="code-header">
                             <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
                             <button onclick="runCode(this)">Run ▶</button>
                         </div>
-                        <textarea class="code-editor" spellcheck="false">${block.content || ''}</textarea>
+                        <textarea class="code-editor" spellcheck="false">${safeCode}</textarea>
                         <div class="code-output"></div>
                     </div>`;
             } 
@@ -126,7 +126,7 @@ const generateHtmlContent = (root: Block, title: string) => {
 <html>
 <head>
 <meta charset="UTF-8">
-<title>${title}</title>
+<title>${title.replace(/</g, '&lt;')}</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f0f4f8; }
   #root { display: flex; flex-direction: column; height: 100vh; padding: 20px; box-sizing: border-box; }
@@ -167,7 +167,7 @@ const generateHtmlContent = (root: Block, title: string) => {
 </head>
 <body>
   <div id="root">
-    <div class="header">${title}</div>
+    <div class="header">${title.replace(/</g, '&lt;')}</div>
     <div style="flex: 1; display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: white; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
        ${renderBlock(root)}
     </div>
@@ -291,28 +291,23 @@ const TableExportModal = ({ isOpen, onClose, elementRef, rootBlock, projectName 
         if (!elementRef.current) return;
         setIsLoading(true);
         try {
-            // Generate a quick low-res preview, filtering out troublesome tags for preview
             const dataUrl = await htmlToImage.toPng(elementRef.current, { 
                 pixelRatio: 0.5, 
                 backgroundColor: '#ffffff',
-                fontEmbedCSS: '', // Stop fetching external CSS (Fixes CORS Error 1 & 2)
+                fontEmbedCSS: '', 
                 filter: (node) => {
-                    // Filter out external stylesheets that cause CORS errors
                     if (node.tagName === 'LINK' || node.tagName === 'STYLE') return false;
                     return true;
                 },
                 onClone: (clonedNode: HTMLElement) => {
-                    // FIX SCROLLABLE CONTENT: Expand elements to full height
                     const elements = clonedNode.querySelectorAll('*');
                     elements.forEach((el: any) => {
-                        // Expand Textareas
                         if (el.tagName === 'TEXTAREA') {
                             el.style.height = 'auto';
                             el.style.height = el.scrollHeight + 'px';
                             el.style.overflow = 'hidden';
                             el.style.resize = 'none';
                         }
-                        // Expand specific scroll containers
                         if (
                             el.classList.contains('custom-scrollbar') || 
                             el.classList.contains('overflow-y-auto') ||
@@ -342,14 +337,12 @@ const TableExportModal = ({ isOpen, onClose, elementRef, rootBlock, projectName 
         const configOptions = {
             pixelRatio: format === 'PNG' ? 3 : 2,
             backgroundColor: '#ffffff',
-            fontEmbedCSS: '', // Stop fetching external CSS
+            fontEmbedCSS: '', 
             filter: (node: HTMLElement) => {
-                // Filter out external stylesheets/scripts that cause CORS issues
                 if (node.tagName === 'LINK') return false; 
                 return true;
             },
             onClone: (clonedNode: HTMLElement) => {
-                // FIX SCROLLABLE CONTENT: Expand elements to full height
                 const elements = clonedNode.querySelectorAll('*');
                 elements.forEach((el: any) => {
                     if (el.tagName === 'TEXTAREA') {
@@ -415,7 +408,6 @@ const TableExportModal = ({ isOpen, onClose, elementRef, rootBlock, projectName 
     return (
         <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
             <div className="bg-white w-full max-w-4xl h-[80vh] rounded-2xl shadow-2xl border border-white/20 flex overflow-hidden" onClick={e => e.stopPropagation()}>
-                {/* Left Preview */}
                 <div className="flex-1 bg-gray-100 relative flex items-center justify-center p-8 overflow-hidden">
                     <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#9ca3af 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
                     {isLoading && !previewUrl ? (
@@ -430,7 +422,6 @@ const TableExportModal = ({ isOpen, onClose, elementRef, rootBlock, projectName 
                     )}
                 </div>
 
-                {/* Right Controls */}
                 <div className="w-80 bg-white border-l border-gray-200 flex flex-col">
                     <div className="p-6 border-b border-gray-100">
                         <h2 className="text-xl font-display font-black text-gray-800 mb-1">Export Project</h2>
@@ -498,16 +489,13 @@ const DrawingBlock: React.FC<{
     const [isDrawing, setIsDrawing] = useState(false);
     const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
     
-    // Local History for Drawing
     const [history, setHistory] = useState<string[]>([]);
     const [historyStep, setHistoryStep] = useState(-1);
 
-    // Tools State
     const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
     const [color, setColor] = useState('#000000');
     const [lineWidth, setLineWidth] = useState(3);
 
-    // Initialize & Resize
     useEffect(() => {
         const canvas = canvasRef.current;
         const container = containerRef.current;
@@ -535,7 +523,6 @@ const DrawingBlock: React.FC<{
              }
         };
 
-        // Initial Setup
         canvas.width = container.clientWidth;
         canvas.height = container.clientHeight;
         const ctx = canvas.getContext('2d');
@@ -544,7 +531,6 @@ const DrawingBlock: React.FC<{
             ctx.lineJoin = "round";
             ctxRef.current = ctx;
             
-            // Only load initial data if history is empty (first mount)
             if (initialData && history.length === 0) {
                 const img = new Image();
                 img.onload = () => {
@@ -565,10 +551,7 @@ const DrawingBlock: React.FC<{
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Sync with external updates (e.g., Global Undo)
     useEffect(() => {
-        // If initialData changes and it DOES NOT match our current history tip, 
-        // it means an external change (like global undo) happened.
         if (initialData && history[historyStep] !== initialData && canvasRef.current) {
              const ctx = canvasRef.current.getContext('2d');
              if (ctx) {
@@ -576,7 +559,6 @@ const DrawingBlock: React.FC<{
                  img.onload = () => {
                      ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
                      ctx.drawImage(img, 0, 0);
-                     // Reset local history to match the new truth from parent
                      const newData = canvasRef.current!.toDataURL();
                      setHistory([newData]);
                      setHistoryStep(0);
@@ -586,7 +568,6 @@ const DrawingBlock: React.FC<{
         }
     }, [initialData]);
 
-    // Update Context settings
     useEffect(() => {
         if(ctxRef.current) {
             ctxRef.current.lineWidth = lineWidth;
@@ -706,13 +687,12 @@ const DrawingBlock: React.FC<{
                 className="w-full h-full block cursor-crosshair touch-none"
             />
             
-            {/* Drawing Toolbar - Only visible on hover */}
             <div 
                 className={`absolute top-4 left-4 flex flex-col gap-2 bg-white/95 backdrop-blur-sm shadow-clay-md border border-gray-200/80 p-2 rounded-xl transition-all duration-300 origin-top-left z-10 ${isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`} 
                 onMouseDown={e => e.stopPropagation()}
             >
                 <div className="flex gap-1">
-                    <button onClick={() => setTool('pen')} className={`p-1.5 rounded-lg transition-colors ${tool === 'pen' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`} title="Pen"><Icon.Pen size={16} /></button>
+                    <button onClick={() => setTool('pen')} className={`p-1.5 rounded-lg transition-colors ${tool === 'pen' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`} title="Pen"><Icon.Pen size={16}/></button>
                     <button onClick={() => setTool('eraser')} className={`p-1.5 rounded-lg transition-colors ${tool === 'eraser' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`} title="Eraser"><Icon.Eraser size={16} /></button>
                 </div>
                 
@@ -739,8 +719,6 @@ const DrawingBlock: React.FC<{
     );
 };
 
-// --- Recursive Block Component ---
-
 const BlockRenderer: React.FC<{
   block: Block;
   parentId: string | null;
@@ -764,12 +742,10 @@ const BlockRenderer: React.FC<{
   const cellRef = useRef<HTMLDivElement>(null);
   const [toolbarPos, setToolbarPos] = useState<{top: number, left: number} | null>(null);
   
-  // Image Dragging State
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const imgDragStartRef = useRef({ x: 0, y: 0 });
   const imgStartPosRef = useRef({ x: 0, y: 0, scale: 1 });
   
-  // Hover State specifically for this block instance
   const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
@@ -822,7 +798,6 @@ const BlockRenderer: React.FC<{
 
   const handleImgMouseUp = () => setIsDraggingImage(false);
 
-  // Ref-based non-passive listener for image zoom isolation to prevent browser zoom
   const imgRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
       const el = imgRef.current;
@@ -881,7 +856,6 @@ const BlockRenderer: React.FC<{
       }
   };
 
-  // --- LEAF NODE ---
   if (block.type === 'leaf') {
     const isActive = activeBlockId === block.id;
     const showToolbar = isActive || showTypeMenu;
@@ -970,7 +944,6 @@ const BlockRenderer: React.FC<{
                                 alt="Content" 
                             />
                             
-                            {/* Image Controls Overlay */}
                             <div className={`absolute top-2 right-2 flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); onUpdate(block.id, { imagePos: { x: 0, y: 0, scale: 1 } }); }}
@@ -1091,16 +1064,14 @@ const BlockRenderer: React.FC<{
             )}
         </div>
         
-        {/* --- FLOATING TOOLBAR (PORTAL) --- */}
         {showToolbar && toolbarPos && createPortal(
             <>
-            {/* Backdrop for 2-step dismissal when menu is open */}
             {showTypeMenu && (
                 <div 
                     className="fixed inset-0 z-[100]" 
                     onMouseDown={(e) => {
                         e.stopPropagation();
-                        setShowTypeMenu(false); // Step 1: Close Menu, Keep Block Active
+                        setShowTypeMenu(false); 
                     }}
                 />
             )}
@@ -1158,7 +1129,6 @@ const BlockRenderer: React.FC<{
     );
   }
 
-  // --- CONTAINER NODE ---
   const isRow = block.direction === 'row';
   
   return (
@@ -1218,8 +1188,6 @@ const BlockRenderer: React.FC<{
   );
 };
 
-// --- MAIN SCREEN ---
-
 export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [root, setRoot] = useState<Block>(DEFAULT_BLOCK);
   const [projects, setProjects] = useState<ProjectMetadata[]>([]);
@@ -1228,18 +1196,13 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [activeDividerId, setActiveDividerId] = useState<string | null>(null);
   
-  // Fullscreen Image Preview State
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
-  // Undo/Redo History
-  const [history, setHistory] = useState<Block[]>([]); // Global Layout History
-  const [future, setFuture] = useState<Block[]>([]);   // Global Layout Redo
+  const [history, setHistory] = useState<Block[]>([]); 
+  const [future, setFuture] = useState<Block[]>([]);   
   
-  // Per-Block History (Content Changes)
-  // Maps blockId -> { past: BlockState[], future: BlockState[] }
   const blockHistories = useRef<Record<string, { past: Partial<Block>[], future: Partial<Block>[] }>>({});
 
-  // UI State
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<{id: string, name: string} | null>(null);
@@ -1247,7 +1210,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [tempProjectName, setTempProjectName] = useState('');
   
-  // Export Modal
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const rootRef = useRef(root);
@@ -1255,7 +1217,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       rootRef.current = root;
   }, [root]);
 
-  // Drag State
   const dragInfo = useRef<{ 
     parentId: string; 
     index: number; 
@@ -1265,7 +1226,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     containerSize: number;
   } | null>(null);
 
-  // Load Projects on Mount
   useEffect(() => {
       const storedProjects = localStorage.getItem('singularity-block-projects');
       if (storedProjects) {
@@ -1281,7 +1241,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       }
   }, []);
 
-  // Save State Function
   const saveState = (newRoot: Block) => {
       setRoot(newRoot);
       if (currentProjectId) {
@@ -1318,13 +1277,11 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       saveState(next);
   };
 
-  // --- Scoped Undo Logic ---
   const handleScopedUndo = () => {
       if (hoveredBlockId && blockHistories.current[hoveredBlockId]?.past.length > 0) {
           const historyStack = blockHistories.current[hoveredBlockId];
           const prevEntry = historyStack.past.pop();
           if (prevEntry) {
-              // Push current state to future for Redo
               const currentNode = findNode(root, hoveredBlockId);
               if (currentNode) {
                   const futureEntry: Partial<Block> = {};
@@ -1333,18 +1290,16 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   });
                   historyStack.future.push(futureEntry);
                   
-                  // Apply Undo
                   const clone = JSON.parse(JSON.stringify(root));
                   const applyUndoRecursive = (node: Block) => {
                       if (node.id === hoveredBlockId) { Object.assign(node, prevEntry); return; }
                       node.children?.forEach(applyUndoRecursive);
                   };
                   applyUndoRecursive(clone);
-                  saveState(clone); // Persist without pushing to global stack
+                  saveState(clone); 
               }
           }
       } else {
-          // If not hovering a block with history, fallback to Global Undo
           handleGlobalUndo();
       }
   };
@@ -1354,7 +1309,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           const historyStack = blockHistories.current[hoveredBlockId];
           const nextEntry = historyStack.future.pop();
           if (nextEntry) {
-              // Push current back to past
               const currentNode = findNode(root, hoveredBlockId);
               if (currentNode) {
                   const pastEntry: Partial<Block> = {};
@@ -1363,7 +1317,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   });
                   historyStack.past.push(pastEntry);
 
-                  // Apply Redo
                   const clone = JSON.parse(JSON.stringify(root));
                   const applyRedoRecursive = (node: Block) => {
                       if (node.id === hoveredBlockId) { Object.assign(node, nextEntry); return; }
@@ -1378,7 +1331,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       }
   };
 
-  // --- Project Actions ---
   const createProject = () => {
       const id = generateId();
       const newProject: ProjectMetadata = { id, name: 'Untitled Project', lastModified: Date.now() };
@@ -1428,7 +1380,6 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setEditingProjectId(null);
   };
 
-  // --- Block Actions ---
   const handleSplit = (targetId: string, splitDir: Direction) => {
     const clone = JSON.parse(JSON.stringify(root));
     const splitRecursive = (node: Block): boolean => {
@@ -1451,33 +1402,30 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       return false;
     };
     splitRecursive(clone);
-    pushGlobalState(clone); // Structure Change -> Global History
+    pushGlobalState(clone); 
   };
 
   const handleUpdate = (id: string, updates: Partial<Block>) => {
-    // 1. Capture State for Local History BEFORE update
     const currentNode = findNode(root, id);
     if (currentNode) {
         if (!blockHistories.current[id]) blockHistories.current[id] = { past: [], future: [] };
         
-        // Store only the fields being updated
         const historyEntry: Partial<Block> = {};
         (Object.keys(updates) as Array<keyof Block>).forEach(key => {
             (historyEntry as any)[key] = currentNode[key];
         });
         
         blockHistories.current[id].past.push(historyEntry);
-        blockHistories.current[id].future = []; // Clear redo stack on new action
+        blockHistories.current[id].future = []; 
     }
 
-    // 2. Apply Update
     const clone = JSON.parse(JSON.stringify(root));
     const updateRecursive = (node: Block) => {
       if (node.id === id) { Object.assign(node, updates); return; }
       node.children?.forEach(updateRecursive);
     };
     updateRecursive(clone);
-    saveState(clone); // Content Change -> Local History + Save (No Global Push)
+    saveState(clone); 
   };
 
   const handleDelete = (id: string, parentId: string) => {
@@ -1505,7 +1453,7 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           return false;
       };
       deleteRecursive(clone);
-      pushGlobalState(clone); // Structure Change
+      pushGlobalState(clone);
   };
 
   const handleSwap = (parentId: string, idx1: number, idx2: number) => {
@@ -1525,7 +1473,7 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           return false;
       }
       swapRecursive(clone);
-      pushGlobalState(clone); // Structure Change
+      pushGlobalState(clone);
   };
 
   const handleRotate = (parentId: string) => {
@@ -1541,7 +1489,7 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           return false;
       };
       rotateRecursive(clone);
-      pushGlobalState(clone); // Structure Change
+      pushGlobalState(clone);
   };
 
   const handleResizeStart = (e: React.MouseEvent, parentId: string, index: number, direction: Direction) => {
@@ -1614,26 +1562,24 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setActiveDividerId(null);
   };
 
-  // Keyboard Shortcuts (Undo/Redo)
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
-          // If focusing text input, let browser handle it
           if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).isContentEditable) {
               return;
           }
 
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
               e.preventDefault();
-              handleScopedUndo(); // Call scoped undo logic
+              handleScopedUndo(); 
           }
           if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
               e.preventDefault();
-              handleScopedRedo(); // Call scoped redo logic
+              handleScopedRedo(); 
           }
       };
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [history, future, root, hoveredBlockId]); // Depend on hoveredBlockId
+  }, [history, future, root, hoveredBlockId]); 
 
   return (
     <div className="flex h-screen w-full bg-[#f0f4f8] font-sans overflow-hidden">

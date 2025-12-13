@@ -290,9 +290,7 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       const newMemories: TimelineMemory[] = aiDraftData.events.map(ev => {
           let ts = new Date(ev.isoDate).getTime();
           
-          // Handle historical dates (pre-1970) which might result in NaN if browser is very old, 
-          // but modern browsers handle negative timestamps fine. 
-          // Just in case, try manual parsing for simple YYYY-MM-DD if NaN.
+          // Handle historical dates (pre-1970) which might result in NaN
           if (isNaN(ts)) {
                const parts = ev.isoDate.split('T')[0].split('-');
                if(parts.length === 3) {
@@ -300,7 +298,7 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
                    const m = parseInt(parts[1]) - 1;
                    const d = parseInt(parts[2]);
                    const date = new Date(y, m, d);
-                   date.setFullYear(y); // Explicitly set full year for < 100 AD cases if needed
+                   date.setFullYear(y); 
                    ts = date.getTime();
                }
           }
@@ -309,7 +307,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
               if (ts < minTs) minTs = ts;
               if (ts > maxTs) maxTs = ts;
           } else {
-              // Fallback
               ts = Date.now(); 
           }
 
@@ -325,21 +322,21 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
           };
       });
 
-      // Calculate View Settings
+      // Calculate View Settings: Focus on the START
       let newCenter = Date.now();
       let newZoom = ZOOM_LEVELS.MONTH;
 
       if (minTs !== Infinity && maxTs !== -Infinity) {
-          newCenter = (minTs + maxTs) / 2;
+          newCenter = minTs; // Center on the FIRST event
           const span = maxTs - minTs;
-          const containerW = containerRef.current?.clientWidth || 1000;
           
-          // If span is large (e.g. > 5 years), zoom out significantly
-          if (span > YEAR * 100) newZoom = ZOOM_LEVELS.YEAR / 5;
-          else if (span > YEAR * 10) newZoom = ZOOM_LEVELS.YEAR;
+          // Smart Zoom calculation based on timeline duration
+          if (span > YEAR * 50) newZoom = ZOOM_LEVELS.YEAR;
+          else if (span > YEAR * 5) newZoom = ZOOM_LEVELS.YEAR; // For medium-long history
           else if (span > YEAR) newZoom = ZOOM_LEVELS.MONTH;
-          else if (span > MONTH) newZoom = ZOOM_LEVELS.WEEK;
-          else newZoom = ZOOM_LEVELS.DAY;
+          else if (span > MONTH * 3) newZoom = ZOOM_LEVELS.WEEK;
+          else if (span > WEEK) newZoom = ZOOM_LEVELS.DAY;
+          else newZoom = ZOOM_LEVELS.HOUR;
       }
 
       if (target === 'NEW') {
@@ -356,7 +353,7 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
           setCurrentProjectId(newId);
           saveProject(newProject);
           
-          // Auto Zoom/Center
+          // Jump to First Node
           setViewState(prev => ({ ...prev, centerTimestamp: newCenter, zoom: newZoom }));
 
       } else {
@@ -366,7 +363,7 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
           commitToHistory(updatedData);
           saveProject(updatedData);
           
-          // Auto Zoom/Center to new content
+          // Jump to First Node
           setViewState(prev => ({ ...prev, centerTimestamp: newCenter, zoom: newZoom }));
       }
 
@@ -375,7 +372,9 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       setShowAiConfirmation(false);
       setAiDraftData(null);
       setIsAiPanelOpen(false);
-      alert(`${newMemories.length} events added successfully!`);
+      
+      // Give feedback
+      setTimeout(() => alert(`${newMemories.length} events added. Focused on start of timeline.`), 100);
   };
 
   const handleRenameProject = (id: string) => {
@@ -457,7 +456,7 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       setIsExportModalOpen(true);
   };
 
-  // Smart Layout Calculation for Export (Updated)
+  // Smart Layout Calculation for Export
   const calculateSmartExportLayout = (memories: TimelineMemory[], start: number, end: number) => {
       const filtered = memories
           .filter(m => m.timestamp >= start && m.timestamp <= end)
@@ -474,11 +473,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       const items: ExportLayoutItem[] = [];
 
       filtered.forEach((mem, i) => {
-          // Strictly linear layout to prevent any overlap
-          // We don't rely on timestamp distance for X position in banner mode,
-          // because we want all content to be readable and compact.
-          // However, we can add a visual gap if there's a significant time jump.
-          
           if (i > 0) {
               const prev = filtered[i-1];
               const diff = mem.timestamp - prev.timestamp;
@@ -500,7 +494,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       const totalWidth = currentX + PADDING_X;
       
       // Ensure we don't break browser canvas limits (usually ~32k)
-      // If it's too wide, we might need to scale down or warn user, but for now we clamp.
       return { items, width: Math.min(totalWidth, MAX_EXPORT_WIDTH) };
   };
 
@@ -523,9 +516,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       setTimeout(async () => {
           try {
               const node = exportContainerRef.current!;
-              
-              // Helper to filter out problematic nodes
-              // Also filter out any LINK or STYLE tags to avoid "cssRules" CORS errors
               const filter = (node: HTMLElement) => (node.tagName !== 'LINK' && node.tagName !== 'STYLE' && node.tagName !== 'SCRIPT');
 
               const dataUrl = await htmlToImage.toPng(node, {
@@ -536,12 +526,11 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
                   filter: filter,
                   skipAutoScale: true,
                   cacheBust: true,
-                  fontEmbedCSS: '', // Disable font embedding to prevent CORS errors with Google Fonts
+                  fontEmbedCSS: '', 
                   style: {
                       transform: 'none', 
                       visibility: 'visible',
                       display: 'block',
-                      // Force visibility and reset position for the clone
                       opacity: '1',
                       position: 'relative',
                       left: '0px',
@@ -559,10 +548,10 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
               setIsExportModalOpen(false);
           } catch (error) {
               console.error("Export failed", error);
-              alert("Export failed. Please check console for details. (Remote images/fonts might be blocked)");
+              alert("Export failed. Please check console for details.");
           } finally {
               setIsExporting(false);
-              setExportLayout(null); // Reset layout to unmount heavy DOM
+              setExportLayout(null); 
           }
       }, 500); 
   };
@@ -779,7 +768,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
 
           // Labels
           const pxPerStep = stepMs * viewState.zoom * scale;
-          // Updated: Always show label if zoom is sufficient or hovered, removing restricted condition for smoother UX
           if (pxPerStep > 50 || scale > 1.2) {
               const labelData = formatTickLabel(time, stepMs);
               const isHoveredTick = scale > 1.1;
@@ -949,9 +937,8 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
 
   const handleMouseUp = () => setIsDragging(false);
 
-  // Fixed Double Click Handler
   const handleDoubleClick = (e: React.MouseEvent) => {
-      e.preventDefault(); // Prevent standard browser double-click selection
+      e.preventDefault(); 
       e.stopPropagation();
       stopLiveMode();
       const rect = containerRef.current!.getBoundingClientRect();
@@ -1060,7 +1047,7 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
 
   const handleContextMenu = (e: React.MouseEvent, nodeId: string | null) => {
       e.preventDefault();
-      e.stopPropagation(); // Ensure event doesn't bubble up
+      e.stopPropagation(); 
       setContextMenu({ x: e.clientX, y: e.clientY, nodeId });
   };
 
@@ -1069,7 +1056,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       const { nodeId, x } = contextMenu;
       
       if (nodeId) {
-          // Node Context Actions
           if (action === 'delete') {
               const mem = timelineData.memories.find(m => m.id === nodeId);
               if (mem) requestDeleteMemory({ stopPropagation: ()=>{} } as any, nodeId, mem.title);
@@ -1080,7 +1066,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
               if (mem) setViewState(prev => ({ ...prev, centerTimestamp: mem.timestamp }));
           }
       } else {
-          // Canvas Context Actions
           if (action.startsWith('add-')) {
               const typeMap: Record<string, MemoryType> = {
                   'add-moment': 'MOMENT',
@@ -1113,46 +1098,14 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
                       ? { ...m, attachments: [...m.attachments, ...newAttachments] } 
                       : m
                   );
-              } else {
-                  // Create new memory logic is handled by drag/drop or context menu generally
-                  // But if triggered via hidden input without modal, we might need logic.
-                  // For now assuming modal context if not specified.
               }
               newData.lastModified = Date.now();
               return newData;
           });
-          // Update history
-          setHistory(prevHist => {
-              const newHist = prevHist.slice(0, historyIndex + 1);
-              // Optimistic update for history not fully implemented here for brevity, 
-              // but state update triggers re-render.
-              return newHist;
-          });
+          setHistory(prevHist => prevHist.slice(0, historyIndex + 1));
       }
       
-      // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleModalDrop = async (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          const files = Array.from(e.dataTransfer.files);
-          const newAttachments = await processFiles(files);
-          if (newAttachments.length > 0 && expandedMemoryId) {
-              setTimelineData(prevData => {
-                  const newData = { ...prevData };
-                  newData.memories = prevData.memories.map(m => 
-                      m.id === expandedMemoryId 
-                      ? { ...m, attachments: [...m.attachments, ...newAttachments] } 
-                      : m
-                  );
-                  newData.lastModified = Date.now();
-                  return newData;
-              });
-          }
-      }
   };
 
   const renderFileIcon = (attachment: Attachment) => {
@@ -1163,13 +1116,10 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
   };
 
   const renderExportContainer = () => {
-      // Hidden off-screen render for export
-      // FIXED: Use opacity 0 and fixed position to ensure visibility during capture
-      // while remaining invisible to the user. 'left: -35000px' causes issues.
       if (!isExportModalOpen || !exportLayout) return null;
       
       const { items, width } = exportLayout;
-      const height = 900; // Banner Height
+      const height = 900; 
       const centerY = height / 2;
 
       return (
@@ -1190,20 +1140,17 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
             }} 
           >
               <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                  {/* Timeline Axis */}
                   <div style={{ position: 'absolute', top: centerY, left: 0, right: 0, height: 2, background: '#9ca3af' }} />
                   
                   {items.map(item => {
                       const m = item.data;
                       const hasImage = m.attachments.find(a => a.type === 'image');
                       const x = item.x;
-                      // Keep some y-variance but clamp it to stay within banner
                       const yOffset = Math.max(-200, Math.min(200, item.y)); 
                       const y = centerY - 40 + yOffset;
 
                       return (
                           <div key={m.id} style={{ position: 'absolute', left: x, top: y, transform: 'translate(-50%, -100%)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                              {/* Node Card */}
                               <div style={{ padding: 8, borderRadius: 12, background: 'white', border: `2px solid ${m.color}`, boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: 220, fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', gap: 4 }}>
                                   {hasImage && (
                                       <div style={{ width: '100%', height: 120, overflow: 'hidden', borderRadius: 6, marginBottom: 4, background: '#f3f4f6' }}>
@@ -1213,13 +1160,8 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
                                   <div style={{ fontSize: 14, fontWeight: 'bold', color: '#1f2937' }}>{m.title}</div>
                                   {m.description && <div style={{ fontSize: 10, color: '#6b7280', maxHeight: 'none', overflow: 'visible' }}>{m.description}</div>}
                               </div>
-                              
-                              {/* Connector Line */}
                               <div style={{ width: 2, height: Math.abs(yOffset) + (yOffset < 0 ? 0 : 40), background: m.color, opacity: 0.5 }} />
-                              
-                              {/* Axis Dot */}
                               <div style={{ width: 14, height: 14, borderRadius: '50%', background: m.color, border: '3px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', position: 'relative' }}>
-                                  {/* Date Label on Axis */}
                                   <div style={{ position: 'absolute', top: 18, left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 'bold', color: '#6b7280', textAlign: 'center' }}>
                                       {new Date(m.timestamp).toLocaleDateString()}
                                   </div>
@@ -1228,8 +1170,6 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
                       );
                   })}
               </div>
-              
-              {/* Branding */}
               <div style={{ position: 'absolute', bottom: 20, right: 20, fontSize: 12, fontWeight: 'bold', color: '#9ca3af', opacity: 0.5 }}>
                   Timeline by Singularity
               </div>

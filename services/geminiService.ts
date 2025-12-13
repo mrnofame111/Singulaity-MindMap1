@@ -139,7 +139,16 @@ export const generateMindMapFromContent = async (content: string): Promise<AIMin
                                                     items: {
                                                         type: Type.OBJECT,
                                                         properties: {
-                                                            label: { type: Type.STRING }
+                                                            label: { type: Type.STRING },
+                                                            children: {
+                                                                type: Type.ARRAY,
+                                                                items: {
+                                                                    type: Type.OBJECT,
+                                                                    properties: {
+                                                                        label: { type: Type.STRING }
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -555,39 +564,27 @@ export const extractConceptsFromImage = async (imageData: string): Promise<{ con
 
 /**
  * Temporal Architect AI: Parses casual timeline descriptions into structured data
+ * OPTIMIZED: Uses Gemini 2.5 Flash for speed and larger context window.
  */
 export const parseTimelineContent = async (input: string): Promise<{ suggestedProjectName: string, events: any[] } | null> => {
     if (!apiKey) return null;
 
+    // Allow large input (approx 800k chars for safety, well within 1M token limit)
+    const safeInput = input.slice(0, 800000);
     const now = new Date();
+    
+    // Condensed prompt for speed
     const prompt = `
-        You are a Temporal Architect AI. Your job is to extract timeline events from text, specifically handling historical data and mixed languages (Bengali/English).
+        Task: Extract timeline events from the text below.
+        Reference Date: ${now.toISOString()}
+        Input: """${safeInput}"""
         
-        Current Date Reference: ${now.toISOString()}
-        
-        Input Text: """${input}"""
-        
-        Task:
-        1. Identify distinct events, dates, and descriptions.
-        2. CRITICAL: Convert ALL dates (including historical ones like 1757, 1857, 1947) into strict ISO 8601 format (YYYY-MM-DD). If a time is missing, use T00:00:00.000Z.
-        3. If the text is in Bengali (e.g., '23 June 1757' or '২৩ জুন ১৭৫৭'), translate the date accurately to English ISO format.
-        4. Infer a "Project Name" (e.g., "History of Bangladesh", "Liberation War").
-        5. Classify events: 'MOMENT' (generic), 'MILESTONE' (major political/war events), 'NOTE' (details).
-        6. Assign meaningful hex colors based on event type (e.g., War=#ef4444, Political=#3b82f6).
-        
-        Output JSON Schema:
-        {
-            "suggestedProjectName": "string",
-            "events": [
-                {
-                    "title": "string (The Event Title)",
-                    "description": "string (Details/Context)",
-                    "isoDate": "string (YYYY-MM-DDTHH:mm:ss.sssZ)",
-                    "type": "MOMENT" | "MILESTONE" | "NOTE",
-                    "color": "string (hex code)"
-                }
-            ]
-        }
+        Requirements:
+        1. Identify distinct events with dates.
+        2. Convert ALL dates to ISO 8601 (YYYY-MM-DD). If year only, use YYYY-01-01.
+        3. Handle historical dates (e.g. 1757) and Bengali dates accurately.
+        4. Infer a "Project Name".
+        5. Return ONLY JSON.
     `;
 
     try {
@@ -608,7 +605,7 @@ export const parseTimelineContent = async (input: string): Promise<{ suggestedPr
                                     title: { type: Type.STRING },
                                     description: { type: Type.STRING },
                                     isoDate: { type: Type.STRING },
-                                    type: { type: Type.STRING },
+                                    type: { type: Type.STRING }, // 'MOMENT' | 'MILESTONE' | 'NOTE'
                                     color: { type: Type.STRING }
                                 }
                             }
@@ -618,8 +615,8 @@ export const parseTimelineContent = async (input: string): Promise<{ suggestedPr
             }
         });
         
-        // Clean JSON response (remove markdown fences if present)
         const text = response.text || "{}";
+        // Simple clean in case of MD wrapping (unlikely with responseMimeType but safe)
         const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
         
         return JSON.parse(cleanedText);
