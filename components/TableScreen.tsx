@@ -1704,7 +1704,7 @@ export const TableScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <BlockRenderer 
                         block={root} 
                         parentId={null} 
-                        parentDirection={null} 
+                        parentDirection={null}
                         index={0} 
                         totalSiblings={0}
                         activeBlockId={activeBlockId}

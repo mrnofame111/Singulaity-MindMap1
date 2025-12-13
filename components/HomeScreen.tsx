@@ -22,6 +22,7 @@ interface HomeScreenProps {
     onOpenTables: () => void;
     onOpenScales: () => void;
     onOpenBoard: () => void;
+    onOpenCalendar: () => void; // Added Prop
     onBackToLanding: () => void;
     onLoginClick: () => void; 
     user: any; 
@@ -29,7 +30,7 @@ interface HomeScreenProps {
 
 type TabType = 'MY_MAPS' | 'TEMPLATES' | 'SHARED' | 'TRASH';
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, onOpenNotepad, onOpenTables, onOpenScales, onOpenBoard, onBackToLanding, onLoginClick, user }) => {
+export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, onOpenNotepad, onOpenTables, onOpenScales, onOpenBoard, onOpenCalendar, onBackToLanding, onLoginClick, user }) => {
     const [maps, setMaps] = useState<MapMetadata[]>([]);
     const [search, setSearch] = useState('');
     const [activeTab, setActiveTab] = useState<TabType>('MY_MAPS');
@@ -296,6 +297,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                 <div className="flex-1 py-6 px-4 space-y-2 overflow-hidden">
                     <SidebarButton id="MY_MAPS" label="My Maps" icon={Icon.Layout} />
                     
+                    {/* MY CALENDAR LINK (NEW) */}
+                    <button 
+                        onClick={onOpenCalendar}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-900 ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
+                        title={isSidebarCollapsed ? "My Calendar" : undefined}
+                    >
+                        <Icon.Calendar size={18} className="text-pink-500" /> 
+                        {!isSidebarCollapsed && <span className="truncate">My Calendar</span>}
+                    </button>
+
                     {/* MY NOTEPAD LINK */}
                     <button 
                         onClick={onOpenNotepad}
@@ -326,7 +337,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                         {!isSidebarCollapsed && <span className="truncate">My Timeline</span>}
                     </button>
 
-                    {/* MY BOARD LINK (NEW) */}
+                    {/* MY BOARD LINK */}
                     <button 
                         onClick={onOpenBoard}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-900 ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
@@ -343,7 +354,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenMap, onCreateMap, 
                     <SidebarButton id="TRASH" label="Trash" icon={Icon.Trash} />
                 </div>
                 
-                {/* Map Limit Indicator (Professional SaaS Feature) */}
+                {/* Map Limit Indicator */}
                 {!isSidebarCollapsed && activeTab === 'MY_MAPS' && (
                     <div className="px-4 py-2 mb-2">
                         <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">

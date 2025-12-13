@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { Icon } from './Icons';
 import * as htmlToImage from 'html-to-image';
+import { parseTimelineContent } from '../services/geminiService';
 
 interface ScaleScreenProps {
   onBack: () => void;
@@ -166,6 +167,13 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ type: 'PROJECT' | 'MEMORY', id: string, name: string } | null>(null);
   const [deleteInput, setDeleteInput] = useState('');
 
+  // AI State
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [aiInput, setAiInput] = useState('');
+  const [isProcessingAi, setIsProcessingAi] = useState(false);
+  const [aiDraftData, setAiDraftData] = useState<{ suggestedProjectName: string, events: any[] } | null>(null);
+  const [showAiConfirmation, setShowAiConfirmation] = useState(false);
+
   // Controls
   const [zoomSpeed, setZoomSpeed] = useState(1.5);
   const [useInertia, setUseInertia] = useState(true);
@@ -251,6 +259,123 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
       setHistoryIndex(0);
       setCurrentProjectId(newId);
       saveProject(newProject);
+  };
+
+  // --- AI INTEGRATION ---
+  const handleAiProcess = async () => {
+      if (!aiInput.trim()) return;
+      setIsProcessingAi(true);
+      try {
+          const result = await parseTimelineContent(aiInput);
+          if (result && result.events && result.events.length > 0) {
+              setAiDraftData(result);
+              setShowAiConfirmation(true);
+          } else {
+              alert("Could not extract any timeline events. Try rephrasing.");
+          }
+      } catch (e) {
+          console.error(e);
+          alert("AI Error. Please try again.");
+      } finally {
+          setIsProcessingAi(false);
+      }
+  };
+
+  const confirmAiMerge = (target: 'CURRENT' | 'NEW') => {
+      if (!aiDraftData) return;
+
+      let minTs = Infinity;
+      let maxTs = -Infinity;
+
+      const newMemories: TimelineMemory[] = aiDraftData.events.map(ev => {
+          let ts = new Date(ev.isoDate).getTime();
+          
+          // Handle historical dates (pre-1970) which might result in NaN if browser is very old, 
+          // but modern browsers handle negative timestamps fine. 
+          // Just in case, try manual parsing for simple YYYY-MM-DD if NaN.
+          if (isNaN(ts)) {
+               const parts = ev.isoDate.split('T')[0].split('-');
+               if(parts.length === 3) {
+                   const y = parseInt(parts[0]);
+                   const m = parseInt(parts[1]) - 1;
+                   const d = parseInt(parts[2]);
+                   const date = new Date(y, m, d);
+                   date.setFullYear(y); // Explicitly set full year for < 100 AD cases if needed
+                   ts = date.getTime();
+               }
+          }
+          
+          if (!isNaN(ts)) {
+              if (ts < minTs) minTs = ts;
+              if (ts > maxTs) maxTs = ts;
+          } else {
+              // Fallback
+              ts = Date.now(); 
+          }
+
+          return {
+              id: generateId(),
+              timestamp: ts,
+              title: ev.title,
+              description: ev.description,
+              type: (ev.type as MemoryType) || 'MOMENT',
+              color: ev.color || '#3b82f6',
+              yOffset: (Math.random() * 200) - 100, // Random vertical scatter
+              attachments: []
+          };
+      });
+
+      // Calculate View Settings
+      let newCenter = Date.now();
+      let newZoom = ZOOM_LEVELS.MONTH;
+
+      if (minTs !== Infinity && maxTs !== -Infinity) {
+          newCenter = (minTs + maxTs) / 2;
+          const span = maxTs - minTs;
+          const containerW = containerRef.current?.clientWidth || 1000;
+          
+          // If span is large (e.g. > 5 years), zoom out significantly
+          if (span > YEAR * 100) newZoom = ZOOM_LEVELS.YEAR / 5;
+          else if (span > YEAR * 10) newZoom = ZOOM_LEVELS.YEAR;
+          else if (span > YEAR) newZoom = ZOOM_LEVELS.MONTH;
+          else if (span > MONTH) newZoom = ZOOM_LEVELS.WEEK;
+          else newZoom = ZOOM_LEVELS.DAY;
+      }
+
+      if (target === 'NEW') {
+          const newId = generateId();
+          const newProject: TimelineData = {
+              id: newId,
+              name: aiDraftData.suggestedProjectName || 'AI Timeline',
+              memories: newMemories,
+              lastModified: Date.now()
+          };
+          setTimelineData(newProject);
+          setHistory([newProject]);
+          setHistoryIndex(0);
+          setCurrentProjectId(newId);
+          saveProject(newProject);
+          
+          // Auto Zoom/Center
+          setViewState(prev => ({ ...prev, centerTimestamp: newCenter, zoom: newZoom }));
+
+      } else {
+          // Merge into current
+          const updatedMemories = [...timelineData.memories, ...newMemories];
+          const updatedData = { ...timelineData, memories: updatedMemories, lastModified: Date.now() };
+          commitToHistory(updatedData);
+          saveProject(updatedData);
+          
+          // Auto Zoom/Center to new content
+          setViewState(prev => ({ ...prev, centerTimestamp: newCenter, zoom: newZoom }));
+      }
+
+      // Cleanup
+      setAiInput('');
+      setShowAiConfirmation(false);
+      setAiDraftData(null);
+      setIsAiPanelOpen(false);
+      alert(`${newMemories.length} events added successfully!`);
   };
 
   const handleRenameProject = (id: string) => {
@@ -493,7 +618,7 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
           if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); handleRedo(); }
           if (e.key === 'Escape') { 
               if (galleryMemoryId) setGalleryMemoryId(null);
-              else { setExpandedMemoryId(null); setContextMenu(null); setDeleteConfirmation(null); }
+              else { setExpandedMemoryId(null); setContextMenu(null); setDeleteConfirmation(null); setIsAiPanelOpen(false); }
           }
           if (galleryMemoryId) {
               if (e.key === 'ArrowRight') handleGalleryNext();
@@ -1182,7 +1307,15 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
               </div>
               
               <div className="flex items-center gap-4">
-                  <button onClick={handleExportClick} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-xs font-bold transition-colors"><Icon.Download size={14} /> Export</button>
+                  {/* AI TRIGGER BUTTON */}
+                  <button 
+                     onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
+                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isAiPanelOpen ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 'bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100'}`}
+                  >
+                     <Icon.Sparkles size={14} className={isAiPanelOpen ? "text-yellow-300 animate-pulse" : ""} /> Temporal Architect
+                  </button>
+
+                  <button onClick={handleExportClick} className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 text-gray-600 hover:bg-gray-100 rounded-lg text-xs font-bold transition-colors border border-gray-200"><Icon.Download size={14} /> Export</button>
                   <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
                       <button onClick={handleUndo} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white rounded text-gray-600 disabled:opacity-30 transition-all shadow-sm"><Icon.Undo size={16}/></button>
                       <button onClick={handleRedo} disabled={historyIndex >= history.length - 1} className="p-1.5 hover:bg-white rounded text-gray-600 disabled:opacity-30 transition-all shadow-sm"><Icon.Redo size={16}/></button>
@@ -1194,6 +1327,94 @@ export const ScaleScreen: React.FC<ScaleScreenProps> = ({ onBack }) => {
                   <button onClick={() => setIsLogOpen(!isLogOpen)} className={`p-2 rounded-lg transition-colors ${isLogOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}><Icon.AlignLeft size={20} className="rotate-180" /></button>
               </div>
           </div>
+
+          {/* TEMPORAL ARCHITECT AI PANEL */}
+          {isAiPanelOpen && (
+              <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4 animate-slide-up">
+                  <div className="bg-white rounded-2xl shadow-2xl border border-indigo-100 overflow-hidden">
+                      <div className="p-4 bg-gradient-to-r from-indigo-600 to-purple-600 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                              <div className="p-2 bg-white/20 rounded-lg backdrop-blur-md">
+                                  <Icon.Brain size={20} className="text-white" />
+                              </div>
+                              <div>
+                                  <h3 className="text-white font-bold text-sm">Temporal Architect AI</h3>
+                                  <p className="text-indigo-100 text-[10px] font-medium">Describe your timeline casually (English/Bengali)</p>
+                              </div>
+                          </div>
+                          <button onClick={() => setIsAiPanelOpen(false)} className="text-white/70 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors">
+                              <Icon.Close size={18} />
+                          </button>
+                      </div>
+                      
+                      {!aiDraftData ? (
+                          <div className="p-4">
+                              <textarea 
+                                  value={aiInput}
+                                  onChange={(e) => setAiInput(e.target.value)}
+                                  placeholder="e.g. Started project last Monday, finished design phase yesterday, and planning launch next week..."
+                                  className="w-full h-32 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none mb-3 placeholder-gray-400 custom-scrollbar"
+                                  autoFocus
+                              />
+                              <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-gray-400 font-medium">Powered by Gemini 2.5 Flash</span>
+                                  <button 
+                                      onClick={handleAiProcess}
+                                      disabled={!aiInput.trim() || isProcessingAi}
+                                      className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                      {isProcessingAi ? <Icon.Navigation className="animate-spin" size={14} /> : <Icon.Sparkles size={14} />}
+                                      {isProcessingAi ? "Architecting..." : "Generate Timeline"}
+                                  </button>
+                              </div>
+                          </div>
+                      ) : (
+                          // CONFIRMATION VIEW
+                          <div className="p-6">
+                               <div className="flex items-center justify-between mb-4">
+                                   <h4 className="text-sm font-bold text-gray-800">
+                                       Extracted {aiDraftData.events.length} Events
+                                   </h4>
+                                   <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-bold border border-indigo-100">
+                                       Suggested: {aiDraftData.suggestedProjectName}
+                                   </span>
+                               </div>
+                               
+                               <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar mb-6 bg-gray-50 p-2 rounded-xl border border-gray-100">
+                                   {aiDraftData.events.map((ev: any, idx: number) => (
+                                       <div key={idx} className="flex items-center gap-3 bg-white p-2 rounded-lg border border-gray-200 shadow-sm text-xs">
+                                           <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ev.color }} />
+                                           <div className="flex-1 font-bold text-gray-700 truncate">{ev.title}</div>
+                                           <div className="text-gray-400 font-mono text-[10px]">{new Date(ev.isoDate).toLocaleDateString()}</div>
+                                       </div>
+                                   ))}
+                               </div>
+                               
+                               <div className="text-center mb-4">
+                                   <p className="text-gray-500 text-xs font-medium">How would you like to proceed?</p>
+                               </div>
+
+                               <div className="grid grid-cols-2 gap-3">
+                                   <button 
+                                       onClick={() => confirmAiMerge('CURRENT')}
+                                       className="py-3 bg-white border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 rounded-xl font-bold text-xs transition-all flex flex-col items-center justify-center gap-1 shadow-sm"
+                                   >
+                                       <Icon.Plus size={16} /> Add to Current Project
+                                       <span className="text-[9px] opacity-60 font-normal">Merge with "{timelineData.name}"</span>
+                                   </button>
+                                   <button 
+                                       onClick={() => confirmAiMerge('NEW')}
+                                       className="py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-all flex flex-col items-center justify-center gap-1 shadow-lg"
+                                   >
+                                       <Icon.Layout size={16} /> Create New Project
+                                       <span className="text-[9px] opacity-80 font-normal">Start fresh as "{aiDraftData.suggestedProjectName}"</span>
+                                   </button>
+                               </div>
+                          </div>
+                      )}
+                  </div>
+              </div>
+          )}
 
           {/* CANVAS AREA */}
           <div className="flex-1 relative overflow-hidden flex">

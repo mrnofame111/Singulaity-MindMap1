@@ -1,7 +1,4 @@
 
-
-
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIMindMapNode, AIGenerationOptions, SingularityNode, AIAction, AIGraphResult, NodeType } from "../types";
 
@@ -552,6 +549,82 @@ export const extractConceptsFromImage = async (imageData: string): Promise<{ con
         return JSON.parse(text);
     } catch (e) {
         console.error("Extract Concepts Error", e);
+        return null;
+    }
+};
+
+/**
+ * Temporal Architect AI: Parses casual timeline descriptions into structured data
+ */
+export const parseTimelineContent = async (input: string): Promise<{ suggestedProjectName: string, events: any[] } | null> => {
+    if (!apiKey) return null;
+
+    const now = new Date();
+    const prompt = `
+        You are a Temporal Architect AI. Your job is to extract timeline events from text, specifically handling historical data and mixed languages (Bengali/English).
+        
+        Current Date Reference: ${now.toISOString()}
+        
+        Input Text: """${input}"""
+        
+        Task:
+        1. Identify distinct events, dates, and descriptions.
+        2. CRITICAL: Convert ALL dates (including historical ones like 1757, 1857, 1947) into strict ISO 8601 format (YYYY-MM-DD). If a time is missing, use T00:00:00.000Z.
+        3. If the text is in Bengali (e.g., '23 June 1757' or '২৩ জুন ১৭৫৭'), translate the date accurately to English ISO format.
+        4. Infer a "Project Name" (e.g., "History of Bangladesh", "Liberation War").
+        5. Classify events: 'MOMENT' (generic), 'MILESTONE' (major political/war events), 'NOTE' (details).
+        6. Assign meaningful hex colors based on event type (e.g., War=#ef4444, Political=#3b82f6).
+        
+        Output JSON Schema:
+        {
+            "suggestedProjectName": "string",
+            "events": [
+                {
+                    "title": "string (The Event Title)",
+                    "description": "string (Details/Context)",
+                    "isoDate": "string (YYYY-MM-DDTHH:mm:ss.sssZ)",
+                    "type": "MOMENT" | "MILESTONE" | "NOTE",
+                    "color": "string (hex code)"
+                }
+            ]
+        }
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        suggestedProjectName: { type: Type.STRING },
+                        events: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    title: { type: Type.STRING },
+                                    description: { type: Type.STRING },
+                                    isoDate: { type: Type.STRING },
+                                    type: { type: Type.STRING },
+                                    color: { type: Type.STRING }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Clean JSON response (remove markdown fences if present)
+        const text = response.text || "{}";
+        const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        return JSON.parse(cleanedText);
+    } catch (e) {
+        console.error("Timeline AI Error", e);
         return null;
     }
 };

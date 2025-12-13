@@ -15,8 +15,9 @@ const NotepadScreen = lazy(() => import('./components/NotepadScreen').then(modul
 const TableScreen = lazy(() => import('./components/TableScreen').then(module => ({ default: module.TableScreen })));
 const ScaleScreen = lazy(() => import('./components/ScaleScreen').then(module => ({ default: module.ScaleScreen })));
 const BoardScreen = lazy(() => import('./components/BoardScreen').then(module => ({ default: module.BoardScreen })));
+const MyCalendarScreen = lazy(() => import('./components/MyCalendarScreen').then(module => ({ default: module.MyCalendarScreen })));
 
-type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD' | 'TABLES' | 'SCALES' | 'BOARD';
+type ViewState = 'LANDING' | 'HOME' | 'CANVAS' | 'NOTEPAD' | 'TABLES' | 'SCALES' | 'BOARD' | 'MY_CALENDAR';
 
 // Loading Component for Suspense
 const GlobalLoader = ({ text }: { text?: string }) => (
@@ -208,6 +209,7 @@ const App: React.FC = () => {
               onOpenTables={() => setCurrentView('TABLES')}
               onOpenScales={() => setCurrentView('SCALES')}
               onOpenBoard={() => setCurrentView('BOARD')}
+              onOpenCalendar={() => setCurrentView('MY_CALENDAR')}
               onBackToLanding={() => setCurrentView('LANDING')}
               onLoginClick={() => setIsAuthModalOpen(true)}
               user={user}
@@ -240,6 +242,10 @@ const App: React.FC = () => {
 
         {currentView === 'BOARD' && (
             <BoardScreen onBack={() => setCurrentView('HOME')} />
+        )}
+
+        {currentView === 'MY_CALENDAR' && (
+            <MyCalendarScreen onBack={() => setCurrentView('HOME')} />
         )}
       </Suspense>
       

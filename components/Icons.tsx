@@ -106,7 +106,22 @@ import {
   Filter,
   Archive,
   MoreVertical,
-  Calendar
+  Calendar,
+  GitCommit,
+  Activity,
+  BarChart3,
+  RefreshCw,
+  Flag,
+  List,
+  User,
+  AlertCircle,
+  Users,
+  ShoppingCart,
+  Box,
+  FileSearch,
+  Heart,
+  Hash,
+  Tag
 } from 'lucide-react';
 
 export const Icon = {
@@ -156,6 +171,7 @@ export const Icon = {
   Unlock,
   Duplicate,
   Task: CheckSquare,
+  CheckSquare,
   Image,
   Pen,
   StickyNote,
@@ -219,5 +235,20 @@ export const Icon = {
   Pause,
   Bot,
   LayoutGrid,
-  Archive
+  Archive,
+  Dependency: GitCommit,
+  Activity,
+  Chart: BarChart3,
+  Refresh: RefreshCw,
+  Flag,
+  List,
+  User,
+  AlertCircle,
+  Users,
+  Cart: ShoppingCart,
+  Box,
+  FileSearch,
+  Heart,
+  Hash,
+  Tag
 };
